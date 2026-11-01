@@ -1,12 +1,8 @@
-'use strict';
-
-const fs = require('node:fs');
-
 /**
  * 解析 about.txt（字段 = 内容，缩进行接到上一条），规则与 Android 版 AboutConfig 一致。
  * 缺字段时：名称/版本用默认值，其余不显示。
  */
-function parseAbout(text, fallback = {}) {
+export function parseAbout(text, fallback = {}) {
   const pairs = [];
   const lines = String(text).replace(/^\uFEFF/, '').split(/\r?\n/);
   for (const raw of lines) {
@@ -47,13 +43,3 @@ function parseAbout(text, fallback = {}) {
     note: (map.get('备注') || '').trim(),
   };
 }
-
-function loadAbout(file, fallback) {
-  try {
-    return parseAbout(fs.readFileSync(file, 'utf8'), fallback);
-  } catch {
-    return { ...fallback, developer: '', summary: '', rows: [], note: '' };
-  }
-}
-
-module.exports = { parseAbout, loadAbout };

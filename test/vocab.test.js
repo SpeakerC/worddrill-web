@@ -1,9 +1,7 @@
-'use strict';
+import { test } from 'node:test';
+import assert from 'node:assert';
 
-const { test } = require('node:test');
-const assert = require('node:assert');
-
-const { parseMarkdown, decodeText } = require('../lib/vocab');
+import { parseMarkdown, decodeText } from '../public/js/vocab.js';
 
 test('解析四列表格，忽略序号列与表头、分隔行', () => {
   const text = [
@@ -43,9 +41,10 @@ test('无效行会被忽略', () => {
 });
 
 test('UTF-8 BOM 与 GB18030 都能解码', () => {
-  const bom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('| word | n. | 词 |', 'utf8')]);
+  const body = new TextEncoder().encode('| word | n. | 词 |');
+  const bom = new Uint8Array([0xef, 0xbb, 0xbf, ...body]);
   assert.ok(decodeText(bom).startsWith('| word'));
 
-  const gbk = Buffer.from([0xd6, 0xd0, 0xce, 0xc4]); // “中文” 的 GBK 编码
+  const gbk = new Uint8Array([0xd6, 0xd0, 0xce, 0xc4]); // “中文” 的 GBK 编码
   assert.equal(decodeText(gbk), '中文');
 });

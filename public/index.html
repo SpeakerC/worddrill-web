@@ -2,14 +2,26 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>单词练习</title>
-  <link rel="icon" href="/icon.png">
-  <link rel="stylesheet" href="/style.css">
+  <meta name="description" content="看单词、记释义、练拼写。内置高中 3500 词，也可导入自己的词汇表，数据保存在本机。">
+  <meta name="theme-color" content="#3f5bd9">
+  <meta name="format-detection" content="telephone=no">
+
+  <link rel="icon" href="./icon.png">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./style.css">
+
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="单词练习">
 </head>
 <body>
-  <div id="app" class="app"></div>
+  <div id="app" class="app"><div class="boot">正在载入…</div></div>
   <div id="toast" class="toast" hidden></div>
-  <script src="/app.js"></script>
+  <noscript><div class="app"><div class="card">这个页面需要开启 JavaScript 才能使用。</div></div></noscript>
+  <script type="module" src="./app.js"></script>
 </body>
 </html>

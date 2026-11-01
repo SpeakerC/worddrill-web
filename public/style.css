@@ -18,7 +18,7 @@
 
 * { box-sizing: border-box; }
 
-html, body { height: 100%; }
+html, body { height: 100%; -webkit-text-size-adjust: 100%; }
 
 body {
   margin: 0;
@@ -39,7 +39,7 @@ a { color: var(--brand); }
 .app {
   max-width: 1040px;
   margin: 0 auto;
-  padding: 0 28px 72px;
+  padding: 0 28px calc(72px + env(safe-area-inset-bottom));
 }
 
 .topbar {
@@ -663,6 +663,31 @@ textarea.input {
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+/* ---------- 载入中 / 安装提示 ---------- */
+
+.boot {
+  padding: 120px 0;
+  text-align: center;
+  color: var(--hint);
+  font-size: 14px;
+}
+
+.install-tip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 8px 10px 14px;
+  border-radius: 14px;
+  background: var(--brand-soft);
+  color: var(--brand-dark);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.install-tip span { flex: 1; }
+.install-tip .icon-btn { flex: none; color: var(--brand); }
+
 /* ---------- 响应式 ---------- */
 
 @media (max-width: 900px) {
@@ -672,3 +697,57 @@ textarea.input {
   .prompt { font-size: 27px; }
   .score { font-size: 44px; }
 }
+
+@media (max-width: 560px) {
+  .app { padding: 0 14px calc(56px + env(safe-area-inset-bottom)); }
+  .topbar, .page-head { min-height: 58px; height: auto; padding: 10px 0; }
+  .topbar h1 { font-size: 19px; }
+  .page-head h2 { font-size: 18px; }
+
+  .hero { padding: 20px 18px; border-radius: 18px; }
+  .hero .big { font-size: 25px; }
+
+  .card { padding: 16px; border-radius: 16px; }
+  .home-grid, .stack { gap: 14px; }
+
+  .prompt-card { margin-top: 14px; padding: 22px 16px; }
+  .prompt { font-size: 25px; }
+  .opt { padding: 14px; font-size: 15.5px; }
+  .spell-hint { font-size: 13.5px; overflow-x: auto; }
+
+  .word-row { padding: 11px 12px; gap: 10px; }
+  .word-row .w { font-size: 16px; }
+  .word-row .acts { opacity: 1; }
+  .book-card .meta { min-width: 0; }
+
+  .modal { padding: 14px; }
+  .about-card { padding: 24px 18px 18px; border-radius: 18px; }
+  .score { font-size: 44px; }
+
+  .toast {
+    bottom: calc(28px + env(safe-area-inset-bottom));
+    max-width: calc(100vw - 28px);
+    text-align: center;
+  }
+
+  /* iOS 上输入框字体小于 16px 会自动放大页面 */
+  .input, .search, select.field, .opt, .btn { font-size: 16px; }
+  .btn.small { font-size: 13px; }
+}
+
+/* ---------- 触屏 ---------- */
+
+@media (hover: none) {
+  .btn:hover { background: var(--brand); }
+  .btn.ghost:hover { background: transparent; border-color: var(--divider); }
+  .btn.text:hover { background: transparent; }
+  .btn.danger:hover { background: var(--wrong); }
+  .icon-btn:hover { background: transparent; color: var(--hint); }
+  .mode:hover { border-color: var(--divider); box-shadow: none; }
+  .opt:hover { border-color: var(--divider); box-shadow: none; }
+  .word-row:hover { border-color: var(--divider); box-shadow: none; }
+  .kbd-tip { display: none; }
+}
+
+button, .mode, .opt, .word-row, .drop { -webkit-tap-highlight-color: transparent; }
+

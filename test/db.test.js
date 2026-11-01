@@ -1,16 +1,18 @@
-'use strict';
+import { test } from 'node:test';
+import assert from 'node:assert';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const { test } = require('node:test');
-const assert = require('node:assert');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
+import { Store } from '../public/js/store.js';
 
-const { Store } = require('../lib/db');
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const SEED = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'seed.json'), 'utf8'));
 
 function tempStore() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'worddrill-'));
-  return new Store({ dataDir: dir, seedFile: path.join(__dirname, 'fixtures', 'seed.json') }).load();
+  const store = new Store();
+  store.seedBuiltin(SEED);
+  return store;
 }
 
 test('内置词库按顺序播种，索引从 1 开始', () => {
@@ -79,4 +81,19 @@ test('答错进错题，答对移出；关闭重复时不再抽已练词', () =>
 
   store.clearPracticeLog();
   assert.equal(store.pickWords(book.id, { start: 1, end: 4, count: 10, allowRepeat: false }).length, 4);
+});
+
+test('删除词库会一起清掉错题与练习记录，内置词库删不掉', () => {
+  const store = tempStore();
+  const builtin = store.books()[0];
+  assert.equal(store.deleteBook(builtin.id), false);
+
+  const imported = store.importEntries(null, '临时', [{ word: 'temp', pos: '', meaning: '临时' }]);
+  const word = store.words(imported.bookId)[0];
+  store.recordAnswer(word.id, 'en_zh', false);
+  assert.equal(store.mistakes().length, 1);
+
+  assert.equal(store.deleteBook(imported.bookId), true);
+  assert.equal(store.mistakes().length, 0);
+  assert.equal(store.books().length, 1);
 });

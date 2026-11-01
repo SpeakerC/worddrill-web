@@ -1,7 +1,7 @@
-'use strict';
+import * as repo from './js/repo.js';
 
 /* ============================================================
- * 单词练习 Web 版 · 前端
+ * 单词练习 · 前端（纯静态版，数据存在浏览器里）
  * 单页应用，hash 路由：#/、#/list、#/books、#/import、#/practice、#/result
  * ============================================================ */
 
@@ -23,18 +23,6 @@ function toast(message) {
   }, 2200);
 }
 
-async function api(path, { method = 'GET', body } = {}) {
-  const res = await fetch(path, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  let data = {};
-  try { data = await res.json(); } catch { /* 空响应 */ }
-  if (!res.ok) throw new Error(data.error || `请求失败（${res.status}）`);
-  return data;
-}
-
 /* ---------- 状态 ---------- */
 
 const state = {
@@ -51,6 +39,7 @@ const state = {
   practice: null,
   result: null,
   listFilter: 'all',
+  listLimit: 200,
   search: '',
   importBookId: null,
   searchTimer: null,
@@ -59,19 +48,58 @@ const state = {
 const currentBook = () => state.books.find((b) => b.id === state.bookId) || null;
 const modeLabel = (key) => (state.modes[key] || {}).label || '练习';
 
+/* 界面偏好（上次选的词库 / 练习方式），和词库数据分开存 */
+const prefs = {
+  get(key, fallback = '') {
+    try {
+      const value = localStorage.getItem(key);
+      return value == null ? fallback : value;
+    } catch {
+      return fallback;
+    }
+  },
+  set(key, value) {
+    try { localStorage.setItem(key, String(value)); } catch { /* 忽略 */ }
+  },
+};
+
 /* ---------- 路由 ---------- */
 
 async function boot() {
-  const data = await api('/api/bootstrap');
+  const data = await repo.init({ onStorageError: (err) => toast(`保存失败：${err.message}`) });
   state.books = data.books;
   state.modes = data.modes;
   state.about = data.about;
-  const saved = Number(localStorage.getItem('worddrill.bookId') || 0);
+  const saved = Number(prefs.get('worddrill.bookId', 0));
   const found = state.books.find((b) => b.id === saved);
   state.bookId = found ? found.id : (state.books[0] ? state.books[0].id : null);
-  const savedMode = localStorage.getItem('worddrill.mode');
+  const savedMode = prefs.get('worddrill.mode');
   if (savedMode && state.modes[savedMode]) state.mode = savedMode;
   await route();
+  afterBoot();
+}
+
+function afterBoot() {
+  keepStorage();
+  registerServiceWorker();
+}
+
+/* 申请「持久化存储」，降低浏览器在空间紧张时清掉数据的概率 */
+async function keepStorage() {
+  try {
+    if (navigator.storage && navigator.storage.persist && !(await navigator.storage.persisted())) {
+      await navigator.storage.persist();
+    }
+  } catch {
+    /* 不支持就算了 */
+  }
+}
+
+/* 页面隐藏或关闭前，把还在防抖里的写入落盘 */
+for (const event of ['pagehide', 'visibilitychange', 'beforeunload']) {
+  window.addEventListener(event, () => {
+    if (event !== 'visibilitychange' || document.visibilityState === 'hidden') repo.flush();
+  });
 }
 
 async function route() {
@@ -97,11 +125,21 @@ window.addEventListener('hashchange', () => { route(); });
 function topbar() {
   return `
     <header class="topbar">
-      <h1>单词练习 <span class="sub">Web</span></h1>
+      <h1>单词练习</h1>
       <div class="topbar-actions">
         <button class="btn text" data-action="about">关于</button>
       </div>
     </header>`;
+}
+
+/** iOS Safari 没有安装按钮，只能用一句提示教用户加到主屏幕。 */
+function installTipHtml() {
+  if (isStandalone() || prefs.get('worddrill.installTip') === 'off' || !isIos()) return '';
+  return `
+    <div class="install-tip">
+      <span>点 Safari 底部的分享按钮 →「添加到主屏幕」，以后没网也能用</span>
+      <button class="icon-btn" data-action="dismiss-install" title="不再提示">✕</button>
+    </div>`;
 }
 
 function pageHead(title, extra = '') {
@@ -137,7 +175,7 @@ async function renderHome() {
     app.innerHTML = `${topbar()}<div class="empty">还没有词库，先去「词库管理」导入一个吧。</div>`;
     return;
   }
-  const stats = await api(`/api/books/${book.id}/stats`);
+  const stats = repo.stats(book.id);
   state.stats = stats;
   const max = stats.range ? stats.range.end : 0;
   if (state.start == null || state.start > Math.max(max, 1)) state.start = max ? 1 : null;
@@ -163,6 +201,7 @@ async function renderHome() {
 
   app.innerHTML = `
     ${topbar()}
+    ${installTipHtml()}
     <section class="hero">
       <div class="tag">本词库进度</div>
       <div class="big">已练 ${stats.practiced} / ${stats.wordCount} 词</div>
@@ -254,7 +293,7 @@ async function startPractice(settings, wordIds = null, filter = 'all') {
     filter,
   };
   if (wordIds) payload.wordIds = wordIds;
-  const data = await api('/api/practice/start', { method: 'POST', body: payload });
+  const data = repo.startPractice(payload);
   if (!data.items.length) {
     toast(wordIds ? '没有可练习的单词' : '当前词库或范围里没有单词');
     return;
@@ -379,7 +418,7 @@ async function answerOption(index) {
   });
   renderPractice();
   try {
-    await api('/api/practice/answer', { method: 'POST', body: { wordId: item.wordId, mode: p.mode, correct } });
+    repo.answer(item.wordId, p.mode, correct);
   } catch (err) {
     toast(err.message);
   }
@@ -401,7 +440,7 @@ async function submitSpell() {
   });
   renderPractice();
   try {
-    await api('/api/practice/answer', { method: 'POST', body: { wordId: item.wordId, mode: p.mode, correct } });
+    repo.answer(item.wordId, p.mode, correct);
   } catch (err) {
     toast(err.message);
   }
@@ -429,7 +468,7 @@ async function toggleStar() {
   const item = p.items[p.index];
   const starred = !item.starred;
   try {
-    await api(`/api/words/${item.wordId}/star`, { method: 'POST', body: { starred } });
+    repo.setStar(item.wordId, starred);
     item.starred = starred;
     renderPractice();
     toast(starred ? '已加星标' : '已取消星标');
@@ -497,10 +536,14 @@ async function retryWrong() {
 
 /* ---------- 词表 ---------- */
 
+/* 一次只渲染这么多行：内置词库 3793 条，手机上一次性铺开会很卡 */
+const LIST_PAGE = 200;
+
 async function renderList() {
   const book = currentBook();
   if (!book) { location.hash = '#/'; return; }
   const filter = state.listFilter;
+  state.listLimit = LIST_PAGE;
   const data = await loadListData(book, filter);
   state.listData = data;
   const title = filter === 'blocked' ? '已屏蔽单词' : '词表';
@@ -518,6 +561,7 @@ async function renderList() {
       </div>
       <div class="list-meta" id="listMeta">${listMetaText(filter, data, book)}</div>
       <div id="listRows">${listRowsHtml(data, filter, book)}</div>
+      <div id="listMore">${listMoreHtml(data)}</div>
       <div class="footer-actions" style="margin-top:16px">
         ${filter === 'blocked' ? '' : `<button class="btn block" data-action="practice-list">练习这些单词</button>`}
       </div>
@@ -526,24 +570,22 @@ async function renderList() {
   const search = document.getElementById('searchInput');
   search.addEventListener('input', () => {
     state.search = search.value;
+    state.listLimit = LIST_PAGE;
     clearTimeout(state.searchTimer);
     state.searchTimer = setTimeout(async () => {
       const fresh = await loadListData(currentBook(), filter);
       state.listData = fresh;
       document.getElementById('listRows').innerHTML = listRowsHtml(fresh, filter, currentBook());
       document.getElementById('listMeta').textContent = listMetaText(filter, fresh, currentBook());
+      document.getElementById('listMore').innerHTML = listMoreHtml(fresh);
     }, 220);
   });
 }
 
 async function loadListData(book, filter) {
   if (!book) return { words: [], counts: {} };
-  if (filter === 'mistakes') {
-    return api(`/api/books/${book.id}/mistakes`);
-  }
-  const q = encodeURIComponent(state.search || '');
-  const data = await api(`/api/books/${book.id}/words?filter=${filter}&q=${q}`);
-  return { words: data.words, counts: {} };
+  if (filter === 'mistakes') return repo.listMistakes(book.id);
+  return { words: repo.listWords(book.id, filter, state.search || '').words, counts: {} };
 }
 
 function listMetaText(filter, data, book) {
@@ -558,7 +600,8 @@ function listRowsHtml(data, filter, book) {
   if (!data.words.length) {
     return `<div class="empty">${filter === 'mistakes' ? '还没有错题' : '没有单词'}</div>`;
   }
-  return data.words.map((word) => {
+  const limit = Math.min(state.listLimit || 200, data.words.length);
+  return data.words.slice(0, limit).map((word) => {
     const extra = data.counts[word.id] ? `<div class="extra">错 ${data.counts[word.id]} 次</div>` : '';
     return `
       <div class="word-row">
@@ -575,6 +618,13 @@ function listRowsHtml(data, filter, book) {
         </div>
       </div>`;
   }).join('');
+}
+
+function listMoreHtml(data) {
+  const total = data.words.length;
+  const shown = Math.min(state.listLimit || 200, total);
+  if (shown >= total) return '';
+  return `<button class="btn ghost block" data-action="list-more">显示更多（还有 ${total - shown} 个）</button>`;
 }
 
 async function practiceList() {
@@ -598,19 +648,19 @@ async function listRowAction(action, id) {
   try {
     if (action === 'row-star') {
       const starred = !(word && word.starred);
-      await api(`/api/words/${id}/star`, { method: 'POST', body: { starred } });
+      repo.setStar(id, starred);
       await renderList();
       return;
     }
     if (action === 'row-block') {
-      await api(`/api/words/${id}/block`, { method: 'POST', body: { blocked: true } });
+      repo.setBlocked(id, true);
       toast(`已屏蔽 ${word ? word.word : ''}`);
       await reloadBooks();
       await renderList();
       return;
     }
     if (action === 'row-unblock') {
-      await api(`/api/words/${id}/block`, { method: 'POST', body: { blocked: false } });
+      repo.setBlocked(id, false);
       toast(`已恢复 ${word ? word.word : ''}`);
       await reloadBooks();
       await renderList();
@@ -629,6 +679,8 @@ async function refreshList() {
   const meta = document.getElementById('listMeta');
   if (rows) rows.innerHTML = listRowsHtml(data, state.listFilter, book);
   if (meta) meta.textContent = listMetaText(state.listFilter, data, book);
+  const more = document.getElementById('listMore');
+  if (more) more.innerHTML = listMoreHtml(data);
   const practiceBtn = document.querySelector('[data-action="practice-list"]');
   if (practiceBtn) practiceBtn.disabled = data.words.length === 0;
 }
@@ -637,6 +689,7 @@ async function refreshList() {
 
 async function renderBooks() {
   await reloadBooks();
+  const info = repo.info();
   app.innerHTML = `
     <div class="center-col wide">
       ${pageHead('词库管理', '<button class="btn small" data-action="import-new">导入词库</button>')}
@@ -651,11 +704,76 @@ async function renderBooks() {
             ${book.builtin ? '' : `<button class="btn small danger" data-action="delete-book" data-id="${book.id}">删除</button>`}
           </div>
         </div>`).join('')}
+
+      <div class="card" style="margin-top:16px">
+        <div class="title">数据备份</div>
+        <div class="hint">所有单词、星标、错题都保存在这台设备的浏览器里。换手机或清理浏览器数据前，先导出一份备份。</div>
+        <div class="footer-actions" style="margin-top:12px">
+          <button class="btn ghost" data-action="export-backup">导出备份</button>
+          <button class="btn ghost" data-action="import-backup">恢复备份</button>
+        </div>
+        <div class="hint" style="margin-top:10px">${esc(storageLine(info))}</div>
+        <input id="backupFile" type="file" accept="application/json,.json" hidden>
+      </div>
     </div>`;
+
+  const backupFile = document.getElementById('backupFile');
+  backupFile.addEventListener('change', async () => {
+    const file = backupFile.files && backupFile.files[0];
+    if (!file) return;
+    await restoreBackup(file);
+    backupFile.value = '';
+  });
+}
+
+function storageLine(info) {
+  const kb = Math.round(info.usageBytes / 1024);
+  if (!info.persistent) return '浏览器不允许本地存储，本次打开的修改在关闭后会丢失';
+  return `已用 ${kb} KB · 保存在本机浏览器，不上传任何服务器`;
+}
+
+function downloadFile(name, text, type = 'application/json') {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportBackup() {
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  downloadFile(`单词练习备份-${stamp}.json`, repo.backupText());
+  toast('备份已导出');
+}
+
+async function restoreBackup(file) {
+  let text = '';
+  try {
+    text = await file.text();
+  } catch {
+    toast('读取文件失败');
+    return;
+  }
+  const ok = await confirmDialog('恢复备份？', '当前所有词库、星标、错题会被文件里的内容覆盖，且无法撤销。', '覆盖');
+  if (!ok) return;
+  try {
+    const result = repo.restoreText(text);
+    await reloadBooks();
+    state.start = null;
+    state.end = null;
+    toast(`已恢复 ${result.books} 个词库、${result.words} 个单词`);
+    location.hash = '#/';
+    renderBooks();
+  } catch (err) {
+    toast(err.message);
+  }
 }
 
 async function reloadBooks() {
-  const data = await api('/api/bootstrap');
+  const data = repo.bootstrap();
   state.books = data.books;
   if (!state.books.some((b) => b.id === state.bookId)) {
     state.bookId = state.books[0] ? state.books[0].id : null;
@@ -668,7 +786,7 @@ async function deleteBook(id) {
   const ok = await confirmDialog('删除词库？', `「${book.name}」里的 ${book.wordCount} 个单词会一起删除，无法恢复。`, '删除');
   if (!ok) return;
   try {
-    await api(`/api/books/${id}`, { method: 'DELETE' });
+    repo.deleteBook(id);
     await reloadBooks();
     toast('已删除');
     renderBooks();
@@ -680,7 +798,7 @@ async function deleteBook(id) {
 /* ---------- 导入 ---------- */
 
 async function renderImport() {
-  const book = state.importBookId ? await api(`/api/books/${state.importBookId}/stats`) : null;
+  const book = state.importBookId ? repo.stats(state.importBookId) : null;
   const appending = Boolean(book);
   app.innerHTML = `
     ${pageHead(appending ? '追加单词' : '导入词汇表')}
@@ -737,10 +855,8 @@ let importEntries = [];
 
 async function handleFile(file) {
   if (file.size > 4 * 1024 * 1024) { toast('文件超过 4 MB，请拆分后再导入'); return; }
-  const buffer = await file.arrayBuffer();
-  const base64 = base64FromBytes(new Uint8Array(buffer));
   try {
-    const data = await api('/api/parse', { method: 'POST', body: { base64 } });
+    const data = repo.parseText(new Uint8Array(await file.arrayBuffer()));
     importEntries = data.entries;
     document.getElementById('markdownInput').value = '';
     document.getElementById('fileName').textContent = `已读取：${file.name}（${data.total} 条）`;
@@ -752,15 +868,6 @@ async function handleFile(file) {
   } catch (err) {
     toast(err.message);
   }
-}
-
-function base64FromBytes(bytes) {
-  let binary = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
 }
 
 function showPreview(data) {
@@ -782,8 +889,7 @@ async function previewImport() {
   const text = document.getElementById('markdownInput').value;
   if (!text.trim()) { toast('先选择文件或粘贴表格'); return; }
   try {
-    const base64 = base64FromBytes(new TextEncoder().encode(text));
-    const data = await api('/api/parse', { method: 'POST', body: { base64 } });
+    const data = repo.parseText(new TextEncoder().encode(text));
     importEntries = data.entries;
     showPreview(data);
   } catch (err) {
@@ -796,7 +902,7 @@ async function saveImport() {
     if (!importEntries.length) { await previewImport(); }
     if (!importEntries.length) { toast('没有可导入的单词'); return; }
     try {
-      const result = await api(`/api/books/${state.importBookId}/import`, { method: 'POST', body: { entries: importEntries } });
+      const result = repo.importInto(state.importBookId, importEntries);
       toast(`已追加 ${result.added} 条，跳过 ${result.skipped} 条重复`);
       state.importBookId = null;
       await reloadBooks();
@@ -812,7 +918,7 @@ async function saveImport() {
   if (!importEntries.length) { await previewImport(); }
   if (!importEntries.length) { toast('没有可导入的单词'); return; }
   try {
-    const result = await api('/api/books', { method: 'POST', body: { name, entries: importEntries } });
+    const result = repo.createBook(name, importEntries);
     toast(`已创建「${name}」，导入 ${result.added} 条`);
     await reloadBooks();
     state.bookId = result.bookId;
@@ -905,7 +1011,7 @@ app.addEventListener('click', async (event) => {
       break;
     case 'mode':
       state.mode = target.dataset.mode;
-      localStorage.setItem('worddrill.mode', state.mode);
+      prefs.set('worddrill.mode', state.mode);
       await renderHome();
       break;
     case 'start':
@@ -967,6 +1073,14 @@ app.addEventListener('click', async (event) => {
     case 'practice-list':
       await practiceList();
       break;
+    case 'list-more': {
+      state.listLimit = (state.listLimit || 200) + 200;
+      const rows = document.getElementById('listRows');
+      const more = document.getElementById('listMore');
+      if (rows) rows.innerHTML = listRowsHtml(state.listData, state.listFilter, currentBook());
+      if (more) more.innerHTML = listMoreHtml(state.listData);
+      break;
+    }
     case 'row-star':
     case 'row-block':
     case 'row-unblock':
@@ -985,7 +1099,7 @@ app.addEventListener('click', async (event) => {
       const ok = await confirmDialog('恢复全部屏蔽单词？', `会把「${book.name}」里被屏蔽的单词全部恢复。`, '全部恢复');
       if (!ok) return;
       try {
-        await api(`/api/books/${book.id}/unblock-all`, { method: 'POST' });
+        repo.unblockAll(book.id);
         await reloadBooks();
         await refreshList();
         toast('已全部恢复');
@@ -997,7 +1111,7 @@ app.addEventListener('click', async (event) => {
       const ok = await confirmDialog('清空错题本？', `会把「${book.name}」的错题记录全部删除，星标不受影响。`, '清空');
       if (!ok) return;
       try {
-        await api(`/api/books/${book.id}/clear-mistakes`, { method: 'POST' });
+        repo.clearMistakes(book.id);
         await renderList();
         toast('已清空错题本');
       } catch (err) { toast(err.message); }
@@ -1007,7 +1121,7 @@ app.addEventListener('click', async (event) => {
       const ok = await confirmDialog('清空练习记录？', '清空后所有单词都会重新被视为「没练过」，星标和错题不受影响。', '清空');
       if (!ok) return;
       try {
-        await api('/api/practice/clear-log', { method: 'POST' });
+        repo.clearLog();
         await renderHome();
         toast('已清空练习记录');
       } catch (err) { toast(err.message); }
@@ -1015,11 +1129,21 @@ app.addEventListener('click', async (event) => {
     }
     case 'open-book':
       state.bookId = Number(target.dataset.id);
-      localStorage.setItem('worddrill.bookId', state.bookId);
+      prefs.set('worddrill.bookId', state.bookId);
       location.hash = '#/list';
       break;
     case 'delete-book':
       await deleteBook(Number(target.dataset.id));
+      break;
+    case 'export-backup':
+      exportBackup();
+      break;
+    case 'import-backup':
+      document.getElementById('backupFile').click();
+      break;
+    case 'dismiss-install':
+      prefs.set('worddrill.installTip', 'off');
+      document.querySelectorAll('.install-tip').forEach((el) => el.remove());
       break;
     default:
       break;
@@ -1069,9 +1193,36 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
+/* ---------- 离线 / 安装 ---------- */
+
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator) || location.protocol === 'file:') return;
+  try {
+    const registration = await navigator.serviceWorker.register(new URL('sw.js', import.meta.url), { scope: './' });
+    registration.addEventListener('updatefound', () => {
+      const worker = registration.installing;
+      if (!worker) return;
+      worker.addEventListener('statechange', () => {
+        if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+          toast('有新版本，重新打开页面后生效');
+        }
+      });
+    });
+  } catch (err) {
+    console.warn('离线缓存注册失败：', err);
+  }
+}
+
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches
+  || window.navigator.standalone === true;
+const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+/* 方便调试和自动化测试 */
+window.worddrill = { repo };
+
 /* 启动 */
 boot().catch((err) => {
   app.innerHTML = `<div class="card" style="margin-top:60px">
     <h2>启动失败</h2><p>${esc(err.message)}</p>
-    <p class="hint">确认服务已经启动：node server.js</p></div>`;
+    <p class="hint">请确认浏览器允许本地存储，然后刷新页面重试。</p></div>`;
 });

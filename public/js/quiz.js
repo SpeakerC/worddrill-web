@@ -1,29 +1,27 @@
-'use strict';
+/** 出题逻辑，与 Android 版 QuizEngine 一致。纯函数，浏览器与 Node 共用。 */
 
-/** 出题逻辑，与 Android 版 QuizEngine 一致。 */
+export const OPTION_COUNT = 4;
 
-const OPTION_COUNT = 4;
-
-const MODES = {
+export const MODES = {
   en_zh: { label: '英译汉', desc: '看英文，从四个中文释义中选' },
   zh_en: { label: '汉译英', desc: '看中文，从四个英文单词中选' },
   spell: { label: '单词默写', desc: '看中文，自己拼写英文' },
 };
 
-function normalize(input) {
+export function normalize(input) {
   return String(input == null ? '' : input)
     .trim()
     .toLowerCase()
     .replace(/\s+/g, ' ');
 }
 
-function isCorrect(input, answer) {
+export function isCorrect(input, answer) {
   const value = normalize(input);
   return value.length > 0 && value === normalize(answer);
 }
 
 /** 拼写提示：每个单词（空格/连字符分隔）首字母 + 下划线，空格显示为 /。 */
-function hint(answer) {
+export function hint(answer) {
   const text = String(answer);
   let out = '';
   for (let i = 0; i < text.length; i += 1) {
@@ -38,7 +36,7 @@ function hint(answer) {
   return out;
 }
 
-function shuffled(list, rng = Math.random) {
+export function shuffled(list, rng = Math.random) {
   const copy = [...list];
   for (let i = copy.length - 1; i > 0; i -= 1) {
     const j = Math.floor(rng() * (i + 1));
@@ -47,7 +45,7 @@ function shuffled(list, rng = Math.random) {
   return copy;
 }
 
-function meaningOf(word) {
+export function meaningOf(word) {
   return word.pos ? `${word.pos} ${word.meaning}` : word.meaning;
 }
 
@@ -66,7 +64,7 @@ function buildOptions(correct, allWords, selector, rng) {
   return shuffled([...distractors, correct], rng);
 }
 
-function makeItem(word, allWords, mode, rng = Math.random) {
+export function makeItem(word, allWords, mode, rng = Math.random) {
   if (mode === 'spell') {
     return {
       wordId: word.id,
@@ -97,7 +95,7 @@ function makeItem(word, allWords, mode, rng = Math.random) {
   };
 }
 
-function buildItems(words, allWords, count, mode, rng = Math.random) {
+export function buildItems(words, allWords, count, mode, rng = Math.random) {
   if (!Array.isArray(words) || words.length === 0 || count <= 0) return [];
   const seen = new Set();
   const picked = [];
@@ -109,5 +107,3 @@ function buildItems(words, allWords, count, mode, rng = Math.random) {
   }
   return picked.map((word) => makeItem(word, allWords, mode, rng));
 }
-
-module.exports = { OPTION_COUNT, MODES, normalize, isCorrect, hint, buildItems, makeItem, shuffled, meaningOf };

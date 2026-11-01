@@ -1,5 +1,3 @@
-'use strict';
-
 /** 词汇表解析与文本解码，规则与 Android 版 VocabMarkdownParser / TextFiles 保持一致。 */
 
 const SEPARATOR = /^:?-{2,}:?$/;
@@ -26,7 +24,7 @@ function isValidWord(word) {
  * 去重按英文小写，保留首次出现的顺序。
  * @returns {{word: string, pos: string, meaning: string}[]}
  */
-function parseMarkdown(markdown) {
+export function parseMarkdown(markdown) {
   const out = new Map();
   for (const rawLine of String(markdown).split(/\r?\n/)) {
     const line = rawLine.trim();
@@ -59,10 +57,10 @@ function parseMarkdown(markdown) {
 }
 
 /** 自动识别 UTF-8（含 BOM）/ UTF-16 / GB18030。 */
-function decodeText(bytes) {
-  const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+export function decodeText(bytes) {
+  const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
-    return buf.subarray(3).toString('utf8');
+    return new TextDecoder('utf-8').decode(buf.subarray(3));
   }
   if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
     return new TextDecoder('utf-16le').decode(buf.subarray(2));
@@ -76,5 +74,3 @@ function decodeText(bytes) {
     return new TextDecoder('gb18030').decode(buf);
   }
 }
-
-module.exports = { parseMarkdown, decodeText };

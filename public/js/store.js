@@ -1,55 +1,63 @@
-'use strict';
-
-const fs = require('node:fs');
-const path = require('node:path');
-
 /**
- * 本地 JSON 存储，数据结构对应 Android 版的 SQLite 表：
- * books / words / mistakes / practice_log。
+ * 纯状态层：只操作内存里的数据结构，不碰文件、网络、浏览器 API。
+ * Node 的单元测试和浏览器里的应用共用这一份代码。
  *
+ * 数据结构对应 Android 版的 SQLite 表 books / words / mistakes / practice_log。
  * 索引规则也一致：words.ord 是入库顺序（稳定），对外返回的 index 是
  * 「当前可见索引」——屏蔽词不占号，其余单词从 1 连续编号。
  */
-class Store {
-  constructor({ dataDir, seedFile }) {
-    this.dataDir = dataDir;
-    this.file = path.join(dataDir, 'db.json');
-    this.seedFile = seedFile;
-    this.db = null;
+
+export function emptyDb() {
+  return {
+    version: 1,
+    nextBookId: 1,
+    nextWordId: 1,
+    books: [],
+    words: [],
+    mistakes: [],
+    practiceLog: [],
+  };
+}
+
+function maxId(list) {
+  return list.reduce((max, item) => Math.max(max, item.id || 0), 0);
+}
+
+/** 兼容旧备份 / 手工改过的数据：补全缺失字段与自增 id。 */
+export function normalizeDb(raw) {
+  const db = { ...emptyDb(), ...(raw || {}) };
+  db.books = Array.isArray(db.books) ? db.books : [];
+  db.words = Array.isArray(db.words) ? db.words : [];
+  db.mistakes = Array.isArray(db.mistakes) ? db.mistakes : [];
+  db.practiceLog = Array.isArray(db.practiceLog) ? db.practiceLog : [];
+  if (!Number.isFinite(raw && raw.nextBookId)) db.nextBookId = maxId(db.books) + 1;
+  if (!Number.isFinite(raw && raw.nextWordId)) db.nextWordId = maxId(db.words) + 1;
+  return db;
+}
+
+export class Store {
+  /**
+   * @param {{db?: object, onChange?: (part: string) => void}} options
+   *   onChange 在数据被修改后调用，参数是变化的部分：
+   *   'books' | 'words' | 'mistakes' | 'log' | 'all'
+   */
+  constructor({ db, onChange } = {}) {
+    this.db = db ? normalizeDb(db) : emptyDb();
+    this.onChange = onChange || null;
   }
 
-  load() {
-    fs.mkdirSync(this.dataDir, { recursive: true });
-    if (fs.existsSync(this.file)) {
-      this.db = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      if (!this.db.nextBookId) this.db.nextBookId = this.maxId(this.db.books) + 1;
-      if (!this.db.nextWordId) this.db.nextWordId = this.maxId(this.db.words) + 1;
-      return this;
-    }
-    this.db = {
-      version: 1,
-      nextBookId: 1,
-      nextWordId: 1,
-      books: [],
-      words: [],
-      mistakes: [],
-      practiceLog: [],
-    };
-    this.seedBuiltin();
-    this.save();
-    return this;
+  change(part) {
+    if (this.onChange) this.onChange(part);
   }
 
-  maxId(list) {
-    return list.reduce((max, item) => Math.max(max, item.id || 0), 0);
-  }
+  // ---------- 初始化 ----------
 
-  seedBuiltin() {
-    const raw = JSON.parse(fs.readFileSync(this.seedFile, 'utf8'));
+  /** 用内置词表播种（只在没有词库时调用一次）。 */
+  seedBuiltin(entries, name = '高中 3500 词') {
     const now = Date.now();
-    const book = { id: this.db.nextBookId++, name: '高中 3500 词', builtin: true, createdAt: now };
+    const book = { id: this.db.nextBookId++, name, builtin: true, createdAt: now };
     this.db.books.push(book);
-    raw.forEach((entry, i) => {
+    entries.forEach((entry, i) => {
       this.db.words.push({
         id: this.db.nextWordId++,
         bookId: book.id,
@@ -62,12 +70,19 @@ class Store {
         createdAt: now,
       });
     });
+    this.change('all');
+    return book;
   }
 
-  save() {
-    const tmp = `${this.file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(this.db), 'utf8');
-    fs.renameSync(tmp, this.file);
+  /** 整体替换（恢复备份用）。 */
+  replaceDb(raw) {
+    this.db = normalizeDb(raw);
+    this.change('all');
+    return this;
+  }
+
+  serialize() {
+    return this.db;
   }
 
   // ---------- 词库 ----------
@@ -98,13 +113,14 @@ class Store {
     const book = this.db.books.find((b) => b.id === bookId);
     if (!book) return null;
     const visible = this.visibleWords(bookId).length;
-    const blocked = this.db.words.filter((w) => w.bookId === bookId && w.blocked).length;
+    const blocked = this.blockedCount(bookId);
     return { id: book.id, name: book.name, builtin: Boolean(book.builtin), wordCount: visible, blockedCount: blocked };
   }
 
   addBook(name) {
     const book = { id: this.db.nextBookId++, name: String(name).trim(), builtin: false, createdAt: Date.now() };
     this.db.books.push(book);
+    this.change('books');
     return book;
   }
 
@@ -116,7 +132,7 @@ class Store {
     this.db.words = this.db.words.filter((w) => w.bookId !== bookId);
     this.db.mistakes = this.db.mistakes.filter((m) => !ids.has(m.wordId));
     this.db.practiceLog = this.db.practiceLog.filter((p) => !ids.has(p.wordId));
-    this.save();
+    this.change('all');
     return true;
   }
 
@@ -172,9 +188,10 @@ class Store {
 
   mistakes(bookId = null) {
     const indexCache = new Map();
+    const byId = new Map(this.db.words.map((w) => [w.id, w]));
     return this.db.mistakes
       .map((m) => {
-        const word = this.db.words.find((w) => w.id === m.wordId);
+        const word = byId.get(m.wordId);
         if (!word || word.blocked) return null;
         if (bookId != null && word.bookId !== bookId) return null;
         if (!indexCache.has(word.bookId)) indexCache.set(word.bookId, this.indexMap(word.bookId));
@@ -189,7 +206,6 @@ class Store {
   }
 
   wordsByIds(ids) {
-    const wanted = new Set(ids);
     const out = [];
     const byId = new Map(this.db.words.map((w) => [w.id, w]));
     const indexCache = new Map();
@@ -198,7 +214,6 @@ class Store {
       if (!word || word.blocked) continue;
       if (!indexCache.has(word.bookId)) indexCache.set(word.bookId, this.indexMap(word.bookId));
       out.push(this.withIndex(word, indexCache.get(word.bookId).get(word.id)));
-      wanted.delete(id);
     }
     return out;
   }
@@ -207,7 +222,7 @@ class Store {
     const word = this.db.words.find((w) => w.id === wordId);
     if (!word) return false;
     word.starred = Boolean(starred);
-    this.save();
+    this.change('words');
     return true;
   }
 
@@ -215,7 +230,7 @@ class Store {
     const word = this.db.words.find((w) => w.id === wordId);
     if (!word) return false;
     word.blocked = Boolean(blocked);
-    this.save();
+    this.change('words');
     return true;
   }
 
@@ -227,7 +242,7 @@ class Store {
         changed += 1;
       }
     }
-    if (changed) this.save();
+    if (changed) this.change('words');
     return changed;
   }
 
@@ -278,7 +293,8 @@ class Store {
     } else {
       this.db.practiceLog.push({ wordId, times: 1, lastAt: now });
     }
-    this.save();
+    this.change('mistakes');
+    this.change('log');
   }
 
   clearMistakes(bookId = null) {
@@ -288,12 +304,12 @@ class Store {
       const ids = new Set(this.db.words.filter((w) => w.bookId === bookId).map((w) => w.id));
       this.db.mistakes = this.db.mistakes.filter((m) => !ids.has(m.wordId));
     }
-    this.save();
+    this.change('mistakes');
   }
 
   clearPracticeLog() {
     this.db.practiceLog = [];
-    this.save();
+    this.change('log');
   }
 
   // ---------- 导入 ----------
@@ -343,9 +359,7 @@ class Store {
       });
       added += 1;
     }
-    this.save();
+    this.change(added ? 'all' : 'books');
     return { bookId: targetId, added, skipped };
   }
 }
-
-module.exports = { Store };

@@ -1,9 +1,7 @@
-'use strict';
+import { test } from 'node:test';
+import assert from 'node:assert';
 
-const { test } = require('node:test');
-const assert = require('node:assert');
-
-const { hint, isCorrect, buildItems, OPTION_COUNT, normalize } = require('../lib/quiz');
+import { hint, isCorrect, buildItems, OPTION_COUNT, normalize } from '../public/js/quiz.js';
 
 const words = [
   { id: 1, word: 'apple', pos: 'n.', meaning: '苹果', starred: false },
