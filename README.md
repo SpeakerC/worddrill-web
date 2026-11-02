@@ -5,7 +5,7 @@
 
 纯静态页面，可以安装到手机或电脑桌面，**断网也能用**；所有数据保存在这台设备的浏览器里，不联网、不上传。
 
-**在线使用：<https://speakerc.github.io/worddrill-web/>**
+**在线使用：<https://wordrill.zzlltt.xyz/>**
 
 ## 装到设备上
 
