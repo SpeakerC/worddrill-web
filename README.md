@@ -102,4 +102,6 @@ node scripts/screenshots.js # 用本机 Edge 无头模式重新生成截图
 
 ## 协议
 
-[MIT](LICENSE)。内置词库来自 [pluto0x0/word3500](https://github.com/pluto0x0/word3500)（MIT）。
+[GNU General Public License v3.0](LICENSE)，Copyright (C) 2026 2816 。
+
+内置词库来自 [pluto0x0/word3500](https://github.com/pluto0x0/word3500)（MIT；MIT 与 GPLv3 兼容）。

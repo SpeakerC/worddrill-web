@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "单词练习 Web 版：英译汉 / 汉译英 / 单词默写，纯静态、可离线安装",
+  "license": "GPL-3.0-only",
   "type": "module",
   "main": "server.js",
   "scripts": {
