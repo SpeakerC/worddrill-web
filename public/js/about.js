@@ -43,3 +43,34 @@ export function parseAbout(text, fallback = {}) {
     note: (map.get('备注') || '').trim(),
   };
 }
+
+const HTML_ESCAPES = {
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+};
+
+export function escapeHtml(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch]);
+}
+
+/*
+ * 关于页的文本里可以放链接，两种写法都认：
+ *   [开放源代码许可](https://example.com/LICENSE)
+ *   <a href="https://example.com/LICENSE">开放源代码许可</a>
+ * 只允许 http/https，其余内容一律转义，避免把配置写成的 HTML 当代码执行。
+ */
+const LINK = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|<a\s+[^>]*href="(https?:\/\/[^"]+)"[^>]*>([^<]*)<\/a>/gi;
+
+export function richText(text) {
+  const source = String(text == null ? '' : text);
+  let out = '';
+  let last = 0;
+  for (const match of source.matchAll(LINK)) {
+    out += escapeHtml(source.slice(last, match.index));
+    const label = match[1] ?? match[4];
+    const url = match[2] ?? match[3];
+    out += `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+    last = match.index + match[0].length;
+  }
+  out += escapeHtml(source.slice(last));
+  return out;
+}

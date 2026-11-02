@@ -1,4 +1,5 @@
 import * as repo from './js/repo.js';
+import { richText } from './js/about.js';
 
 /* ============================================================
  * 单词练习 · 前端（纯静态版，数据存在浏览器里）
@@ -980,17 +981,17 @@ function showAbout() {
   (info.rows || []).forEach((row) => rows.push(row));
   openModal(`
     <div class="about-card">
-      <img class="logo" src="/icon.png" alt="">
+      <img class="logo" src="./icon.png" alt="">
       <h3>${esc(info.name || '单词练习')}</h3>
       <div class="ver">版本 ${esc(info.version || '1.0.0')}</div>
-      <div class="sum">${esc(info.summary || '')}</div>
+      <div class="sum">${richText(info.summary || '')}</div>
       ${rows.length ? `<div class="about-rows">
         ${rows.map((row) => `<div class="about-row">
           ${row.label ? `<span class="k">${esc(row.label)}</span>` : ''}
-          <span class="v">${esc(row.value)}</span>
+          <span class="v">${richText(row.value)}</span>
         </div>`).join('')}
       </div>` : ''}
-      ${info.note ? `<div class="about-note">${esc(info.note)}</div>` : ''}
+      ${info.note ? `<div class="about-note">${richText(info.note)}</div>` : ''}
       <button class="btn ghost about-close" data-close>知道了</button>
     </div>`);
 }
