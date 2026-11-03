@@ -97,8 +97,8 @@ async function main() {
     await page.waitForSelector('#preview:not([hidden])');
     await page.screenshot({ path: path.join(OUT, 'import.png'), fullPage: true });
 
-    await page.evaluate(() => { location.hash = '#/'; });
-    await page.waitForSelector('.hero');
+    await page.evaluate(() => { location.hash = '#/settings'; });
+    await page.waitForSelector('#themeSelect');
     await page.click('[data-action="about"]');
     await page.waitForSelector('.about-card');
     await page.screenshot({ path: path.join(OUT, 'about.png') });
@@ -108,6 +108,25 @@ async function main() {
     await page.evaluate(() => { location.hash = '#/books'; });
     await page.waitForSelector('.word-row');
     await page.screenshot({ path: path.join(OUT, 'books.png'), fullPage: true });
+
+    await page.evaluate(() => { location.hash = '#/report'; });
+    await page.waitForSelector('.stat-grid');
+    await page.screenshot({ path: path.join(OUT, 'report.png'), fullPage: true });
+
+    await page.evaluate(() => { location.hash = '#/settings'; });
+    await page.waitForSelector('#themeSelect');
+    await page.screenshot({ path: path.join(OUT, 'settings.png'), fullPage: true });
+
+    /* 深色模式 */
+    await page.selectOption('#themeSelect', 'dark');
+    await page.waitForTimeout(2500); // 等提示条消失
+    await page.evaluate(() => { location.hash = '#/'; });
+    await page.waitForSelector('.hero');
+    await page.screenshot({ path: path.join(OUT, 'home-dark.png'), fullPage: true });
+    await page.evaluate(() => { location.hash = '#/report'; });
+    await page.waitForSelector('.stat-grid');
+    await page.screenshot({ path: path.join(OUT, 'report-dark.png'), fullPage: true });
+    await page.evaluate(() => { localStorage.setItem('worddrill.theme', 'auto'); });
 
     await context.close();
 
@@ -131,6 +150,10 @@ async function main() {
     await phone.evaluate(() => { location.hash = '#/list'; });
     await phone.waitForSelector('.word-row');
     await phone.screenshot({ path: path.join(OUT, 'mobile-list.png') });
+
+    await phone.evaluate(() => { location.hash = '#/report'; });
+    await phone.waitForSelector('.stat-grid');
+    await phone.screenshot({ path: path.join(OUT, 'mobile-report.png'), fullPage: true });
     await mobile.close();
 
     console.log(`✔ 截图完成：${bookId}，输出 ${OUT}`);

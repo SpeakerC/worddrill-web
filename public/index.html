@@ -4,13 +4,26 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>单词练习</title>
-  <meta name="description" content="看单词、记释义、练拼写。内置高中 3500 词，也可导入自己的词汇表，数据保存在本机。">
+  <meta name="description" content="看单词、记释义、练拼写、听发音。内置高中 3500 词，可导入自己的词汇表；打卡、掌握度、间隔重复复习，数据保存在本机。">
   <meta name="theme-color" content="#3f5bd9">
   <meta name="format-detection" content="telephone=no">
 
   <link rel="icon" href="./icon.png">
   <link rel="apple-touch-icon" href="./apple-touch-icon.png">
   <link rel="manifest" href="./manifest.webmanifest">
+
+  <!-- 先把主题挂上，避免深色模式下打开页面闪一下白 -->
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem('worddrill.theme') || 'auto';
+        var dark = pref === 'dark'
+          || (pref !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      } catch (e) { /* 忽略 */ }
+    })();
+  </script>
+
   <link rel="stylesheet" href="./style.css">
 
   <meta name="mobile-web-app-capable" content="yes">

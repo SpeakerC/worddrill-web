@@ -7,15 +7,19 @@
  * 「当前可见索引」——屏蔽词不占号，其余单词从 1 连续编号。
  */
 
+import { nextLevel, nextDueAt, dayKey, recentDayKeys, streak } from './review.js';
+
 export function emptyDb() {
   return {
-    version: 1,
+    version: 2,
     nextBookId: 1,
     nextWordId: 1,
     books: [],
     words: [],
     mistakes: [],
     practiceLog: [],
+    review: [],
+    daily: [],
   };
 }
 
@@ -30,6 +34,8 @@ export function normalizeDb(raw) {
   db.words = Array.isArray(db.words) ? db.words : [];
   db.mistakes = Array.isArray(db.mistakes) ? db.mistakes : [];
   db.practiceLog = Array.isArray(db.practiceLog) ? db.practiceLog : [];
+  db.review = Array.isArray(db.review) ? db.review : [];
+  db.daily = Array.isArray(db.daily) ? db.daily : [];
   if (!Number.isFinite(raw && raw.nextBookId)) db.nextBookId = maxId(db.books) + 1;
   if (!Number.isFinite(raw && raw.nextWordId)) db.nextWordId = maxId(db.words) + 1;
   return db;
@@ -132,6 +138,7 @@ export class Store {
     this.db.words = this.db.words.filter((w) => w.bookId !== bookId);
     this.db.mistakes = this.db.mistakes.filter((m) => !ids.has(m.wordId));
     this.db.practiceLog = this.db.practiceLog.filter((p) => !ids.has(p.wordId));
+    this.db.review = this.db.review.filter((r) => !ids.has(r.wordId));
     this.change('all');
     return true;
   }
@@ -293,8 +300,119 @@ export class Store {
     } else {
       this.db.practiceLog.push({ wordId, times: 1, lastAt: now });
     }
+
+    // 间隔重复：答对升级、答错归零，据此算下次复习时间
+    const record = this.db.review.find((r) => r.wordId === wordId);
+    const currentLevel = record ? record.level : 0;
+    const lapses = (record ? record.lapses : 0) + (correct ? 0 : 1);
+    const level = nextLevel(currentLevel, correct);
+    const dueAt = nextDueAt(currentLevel, correct, now);
+    if (record) {
+      record.level = level;
+      record.dueAt = dueAt;
+      record.lastAt = now;
+      record.lapses = lapses;
+    } else {
+      this.db.review.push({ wordId, level, dueAt, lastAt: now, lapses });
+    }
+
+    // 打卡：按本地日期累加当天答题数与正确数
+    const key = dayKey(new Date(now));
+    const day = this.db.daily.find((d) => d.date === key);
+    if (day) {
+      day.answered += 1;
+      day.correct += correct ? 1 : 0;
+    } else {
+      this.db.daily.push({ date: key, answered: 1, correct: correct ? 1 : 0 });
+    }
+
     this.change('mistakes');
     this.change('log');
+    this.change('review');
+    this.change('daily');
+  }
+
+  // ---------- 复习 / 统计 ----------
+
+  /** 今天到期、且没被屏蔽的单词：等级低的先来，同级按到期时间。 */
+  dueReviewWords(limit = 200, now = Date.now()) {
+    const byId = new Map(this.db.words.map((w) => [w.id, w]));
+    const indexCache = new Map();
+    const due = [];
+    for (const record of this.db.review) {
+      if (record.dueAt > now) continue;
+      const word = byId.get(record.wordId);
+      if (!word || word.blocked) continue;
+      due.push({ word, level: record.level || 0, dueAt: record.dueAt });
+    }
+    due.sort((a, b) => a.level - b.level || a.dueAt - b.dueAt);
+    return due.slice(0, Math.max(0, limit)).map(({ word, level }) => {
+      if (!indexCache.has(word.bookId)) indexCache.set(word.bookId, this.indexMap(word.bookId));
+      return { ...this.withIndex(word, indexCache.get(word.bookId).get(word.id)), level };
+    });
+  }
+
+  dueReviewCount(now = Date.now()) {
+    return this.dueReviewWords(Number.MAX_SAFE_INTEGER, now).length;
+  }
+
+  /** 掌握度：按复习等级把词分成「新词 / 学习中 / 已掌握」三档。 */
+  masteryStats(bookId = null) {
+    const words = this.db.words.filter(
+      (w) => !w.blocked && (bookId == null || w.bookId === bookId),
+    );
+    const levels = new Map(this.db.review.map((r) => [r.wordId, r.level || 0]));
+    let fresh = 0;
+    let learning = 0;
+    let mastered = 0;
+    for (const word of words) {
+      const level = levels.get(word.id) || 0;
+      if (level >= 5) mastered += 1;
+      else if (level >= 1) learning += 1;
+      else fresh += 1;
+    }
+    const total = words.length;
+    return {
+      total,
+      fresh,
+      learning,
+      mastered,
+      masteredPercent: total ? Math.round((mastered * 100) / total) : 0,
+    };
+  }
+
+  /** 错得最多的词，用于报告页的「最该复习的词」。 */
+  topWrongWords(bookId = null, limit = 8) {
+    return this.mistakes(bookId)
+      .sort((a, b) => b.wrong - a.wrong || b.lastAt - a.lastAt)
+      .slice(0, Math.max(0, limit));
+  }
+
+  /** 近 days 天每天的答题量与正确数。 */
+  dailyStats(days, now = Date.now()) {
+    const keys = recentDayKeys(days, now);
+    const map = new Map(this.db.daily.map((d) => [d.date, d]));
+    return keys.map((key) => {
+      const value = map.get(key);
+      return { date: key, answered: value ? value.answered : 0, correct: value ? value.correct : 0 };
+    });
+  }
+
+  /** 学习报告需要的汇总。 */
+  studySummary(days = 7, goal = 30, now = Date.now()) {
+    const stats = this.dailyStats(days, now);
+    const studied = new Set(this.db.daily.filter((d) => d.answered > 0).map((d) => d.date));
+    const totalAnswered = this.db.daily.reduce((sum, d) => sum + (d.answered || 0), 0);
+    const totalCorrect = this.db.daily.reduce((sum, d) => sum + (d.correct || 0), 0);
+    return {
+      todayAnswered: stats.length ? stats[stats.length - 1].answered : 0,
+      dailyGoal: goal,
+      streak: streak(dayKey(new Date(now)), studied),
+      totalAnswered,
+      totalCorrect,
+      dueReview: this.dueReviewCount(now),
+      days: stats,
+    };
   }
 
   clearMistakes(bookId = null) {

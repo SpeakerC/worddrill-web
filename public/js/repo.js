@@ -8,7 +8,7 @@ import { parseMarkdown, decodeText } from './vocab.js';
 import { parseAbout } from './about.js';
 import { createStorage, getLocalStorage, memoryStorage, exportBackup, parseBackup } from './persist.js';
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.3.3';
 export { MODES, isCorrect };
 
 const SEED_URL = new URL('../assets/words3500.json', import.meta.url);
@@ -125,7 +125,28 @@ export function startPractice(body = {}) {
     ? s.wordsByIds(ids)
     : s.pickWords(book.id, { start, end, count, allowRepeat, filter });
   const requested = ids.length > 0 ? ids.length : count;
-  return { items: buildItems(words, s.allWords(), requested, mode), requested, mode, bookName: book.name };
+  return {
+    items: buildItems(words, s.allWords(), requested, mode),
+    requested,
+    mode,
+    bookName: body.bookName || book.name,
+  };
+}
+
+/** 今日到期的复习单词。 */
+export function dueReview(limit = 200) {
+  const s = requireStore();
+  return { count: s.dueReviewCount(), words: s.dueReviewWords(limit) };
+}
+
+/** 学习报告：近 days 天统计 + 掌握度 + 最该复习的词。 */
+export function report(days = 7, goal = 30) {
+  const s = requireStore();
+  return {
+    summary: s.studySummary(days, goal),
+    mastery: s.masteryStats(null),
+    wrong: s.topWrongWords(null, 8),
+  };
 }
 
 export function setStar(wordId, starred) {

@@ -6,7 +6,11 @@ export const MODES = {
   en_zh: { label: '英译汉', desc: '看英文，从四个中文释义中选' },
   zh_en: { label: '汉译英', desc: '看中文，从四个英文单词中选' },
   spell: { label: '单词默写', desc: '看中文，自己拼写英文' },
+  listen: { label: '听音拼写', desc: '听发音，自己拼出英文单词' },
 };
+
+/** 需要出声的练习方式：英译汉（看词听音）和听音拼写。 */
+export const HEARING_MODES = new Set(['en_zh', 'listen']);
 
 export function normalize(input) {
   return String(input == null ? '' : input)
@@ -65,17 +69,20 @@ function buildOptions(correct, allWords, selector, rng) {
 }
 
 export function makeItem(word, allWords, mode, rng = Math.random) {
-  if (mode === 'spell') {
+  if (mode === 'spell' || mode === 'listen') {
+    const listen = mode === 'listen';
     return {
       wordId: word.id,
       word: word.word,
       meaning: meaningOf(word),
       starred: Boolean(word.starred),
-      prompt: meaningOf(word),
+      // 听音拼写不显示中文，题面只放一句提示
+      prompt: listen ? '点这里再听一遍' : meaningOf(word),
       answer: word.word,
       options: [],
       correctOption: -1,
       spell: true,
+      listen,
       hint: hint(word.word),
     };
   }
@@ -91,6 +98,7 @@ export function makeItem(word, allWords, mode, rng = Math.random) {
     options,
     correctOption: options.indexOf(correct),
     spell: false,
+    listen: false,
     hint: '',
   };
 }

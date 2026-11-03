@@ -1,5 +1,8 @@
 import * as repo from './js/repo.js';
 import { richText } from './js/about.js';
+import * as settings from './js/settings.js';
+import { speak, supported as speechSupported, warmup as warmupSpeech } from './js/speech.js';
+import { applyTheme, themePref, setThemePref, watchSystem } from './js/theme.js';
 
 /* ============================================================
  * 单词练习 · 前端（纯静态版，数据存在浏览器里）
@@ -67,6 +70,9 @@ const prefs = {
 /* ---------- 路由 ---------- */
 
 async function boot() {
+  applyTheme();
+  watchSystem();
+  warmupSpeech();
   const data = await repo.init({ onStorageError: (err) => toast(`保存失败：${err.message}`) });
   state.books = data.books;
   state.modes = data.modes;
@@ -112,6 +118,9 @@ async function route() {
     if (name === 'list') return renderList();
     if (name === 'books') return renderBooks();
     if (name === 'import') return renderImport();
+    if (name === 'report') return renderReport();
+    if (name === 'settings') return renderSettings();
+    if (name === 'privacy') return renderPrivacy();
     return renderHome();
   } catch (err) {
     app.innerHTML = `${topbar()}<div class="card"><p>出错了：${esc(err.message)}</p>
@@ -128,7 +137,8 @@ function topbar() {
     <header class="topbar">
       <h1>单词练习</h1>
       <div class="topbar-actions">
-        <button class="btn text" data-action="about">关于</button>
+        <button class="btn text" data-action="report">学习报告</button>
+        <button class="btn text" data-action="settings">设置</button>
       </div>
     </header>`;
 }
@@ -178,6 +188,8 @@ async function renderHome() {
   }
   const stats = repo.stats(book.id);
   state.stats = stats;
+  let due = 0;
+  try { due = repo.dueReview().count; } catch { due = 0; }
   const max = stats.range ? stats.range.end : 0;
   if (state.start == null || state.start > Math.max(max, 1)) state.start = max ? 1 : null;
   if (state.end == null || state.end > max) state.end = max || null;
@@ -191,7 +203,7 @@ async function renderHome() {
     .map((b) => `<option value="${b.id}" ${b.id === state.bookId ? 'selected' : ''}>${esc(b.name)}（${b.wordCount} 词）</option>`)
     .join('');
 
-  const modes = ['en_zh', 'zh_en', 'spell'].map((key) => {
+  const modes = Object.keys(state.modes).map((key) => {
     const info = state.modes[key] || {};
     return `
       <button class="mode ${state.mode === key ? 'on' : ''}" data-action="mode" data-mode="${key}">
@@ -249,6 +261,10 @@ async function renderHome() {
 
         <button class="btn block" data-action="start" ${max ? '' : 'disabled'}>开始练习</button>
 
+        <button class="btn ghost block review-btn" data-action="review" ${due ? '' : 'disabled'}>
+          ${due ? `复习今日到期的 ${due} 个单词` : '今天没有待复习的单词'}
+        </button>
+
         <div class="footer-actions">
           <button class="btn ghost" data-action="list-starred">星标词汇</button>
           <button class="btn ghost" data-action="list-mistakes">错题本</button>
@@ -281,19 +297,20 @@ function readSettings() {
   return { count, start, end, allowRepeat: state.allowRepeat };
 }
 
-async function startPractice(settings, wordIds = null, filter = 'all') {
+async function startPractice(options, wordIds = null, filter = 'all', bookName = null) {
   const book = currentBook();
   if (!book) return;
   const payload = {
     bookId: book.id,
     mode: state.mode,
-    count: wordIds ? wordIds.length : settings.count,
-    start: settings.start,
-    end: settings.end,
-    allowRepeat: wordIds ? true : settings.allowRepeat,
+    count: wordIds ? wordIds.length : options.count,
+    start: options.start,
+    end: options.end,
+    allowRepeat: wordIds ? true : options.allowRepeat,
     filter,
   };
   if (wordIds) payload.wordIds = wordIds;
+  if (bookName) payload.bookName = bookName;
   const data = repo.startPractice(payload);
   if (!data.items.length) {
     toast(wordIds ? '没有可练习的单词' : '当前词库或范围里没有单词');
@@ -309,6 +326,7 @@ async function startPractice(settings, wordIds = null, filter = 'all') {
     mode: data.mode,
     bookName: data.bookName,
     requested: data.requested,
+    spokenKey: '',
   };
   if (data.items.length < data.requested) toast(`可抽的单词不足，本轮只有 ${data.items.length} 题`);
   location.hash = '#/practice';
@@ -330,15 +348,18 @@ function renderPractice() {
   const total = p.items.length;
   const percent = Math.round(((p.index + (p.answered ? 1 : 0)) / total) * 100);
   const isSpell = item.spell;
+  const isListen = p.mode === 'listen';
+  const canHear = p.mode === 'en_zh' || isListen;
 
   let body;
   if (isSpell) {
     const disabled = p.answered ? 'disabled' : '';
+    const placeholder = isListen ? '听发音，写出这个单词' : '输入英文，回车提交';
     body = `
       <div class="spell-box">
         <div class="spell-hint">${esc(item.hint)}　(${item.answer.length} 个字母)</div>
         <input id="spellInput" class="input" autocomplete="off" autocapitalize="off" spellcheck="false"
-               placeholder="输入英文，回车提交" value="${esc(p.input)}" ${disabled}>
+               placeholder="${placeholder}" value="${esc(p.input)}" ${disabled}>
         ${p.answered ? '' : '<button class="btn block" style="margin-top:10px" data-action="submit-spell">提交</button>'}
       </div>`;
   } else {
@@ -358,13 +379,15 @@ function renderPractice() {
   }
 
   const feedback = p.answered ? renderFeedback(item) : '';
+  const dontKnow = p.answered ? '' : '<button class="btn ghost" data-action="dont-know">我不会</button>';
   const nextButton = p.answered
     ? `<button class="btn block" data-action="next">${p.index + 1 >= total ? '查看结果' : '下一题（Enter）'}</button>`
     : '';
 
   app.innerHTML = `
-    <div class="center-col">
+    <div class="center-col practice-wrap" id="practiceWrap">
       ${pageHead(`${modeLabel(p.mode)} · ${p.bookName}`, `
+        ${canHear ? '<button class="icon-btn" data-action="speak" title="朗读单词">🔊</button>' : ''}
         <button class="icon-btn ${item.starred ? 'star-on' : ''}" data-action="star" title="星标">${item.starred ? '★' : '☆'}</button>
         <button class="icon-btn" data-action="exit" title="退出练习">✕</button>`)}
       <div class="practice-top">
@@ -372,15 +395,16 @@ function renderPractice() {
         <div class="bar on-light" style="flex:1;margin-top:0"><i style="width:${percent}%"></i></div>
       </div>
 
-      <div class="prompt-card">
-        <div class="prompt-label">${isSpell || p.mode === 'zh_en' ? '中 文 释 义' : '英 文'}</div>
+      <div class="prompt-card ${canHear ? 'tappable' : ''}" ${canHear ? 'data-action="speak" title="点一下再听一遍"' : ''}>
+        <div class="prompt-label">${isListen ? '听 发 音' : (isSpell || p.mode === 'zh_en' ? '中 文 释 义' : '英 文')}</div>
         <div class="prompt">${esc(item.prompt)}</div>
+        ${canHear && !isListen ? '<div class="speak-tip">点一下再听一遍</div>' : ''}
       </div>
 
       ${body}
       ${feedback}
-      <div class="practice-actions">${nextButton}</div>
-      <div class="kbd-tip">按 <kbd>1</kbd>–<kbd>4</kbd> 或 <kbd>A</kbd>–<kbd>D</kbd> 选择，<kbd>Enter</kbd> 下一题${isSpell ? '，<kbd>Enter</kbd> 提交拼写' : ''}</div>
+      <div class="practice-actions">${dontKnow}${nextButton}</div>
+      <div class="kbd-tip">按 <kbd>1</kbd>–<kbd>4</kbd> 或 <kbd>A</kbd>–<kbd>D</kbd> 选择，<kbd>Enter</kbd> 下一题${isSpell ? '，<kbd>Enter</kbd> 提交拼写' : ''}；手机上左滑＝我不会，长按＝加星</div>
     </div>`;
 
   if (isSpell && !p.answered) {
@@ -393,6 +417,93 @@ function renderPractice() {
       }
     });
     input.addEventListener('input', () => { p.input = input.value; });
+  }
+
+  bindGestures(document.getElementById('practiceWrap'));
+  autoplayWord(item);
+}
+
+/** 练习页手势：左滑＝我不会，长按＝加星，和 Android 版一致。 */
+function bindGestures(el) {
+  if (!el || !('ontouchstart' in window)) return;
+  let start = null;
+  let moved = false;
+  let timer = 0;
+  const cancel = () => { if (timer) { clearTimeout(timer); timer = 0; } };
+
+  el.addEventListener('touchstart', (event) => {
+    if (event.touches.length !== 1) return;
+    if (event.target.closest('input, textarea, select')) return;
+    const touch = event.touches[0];
+    start = { x: touch.clientX, y: touch.clientY };
+    moved = false;
+    cancel();
+    timer = setTimeout(() => {
+      timer = 0;
+      if (!moved && start) { start = null; toggleStar(); }
+    }, 520);
+  }, { passive: true });
+
+  el.addEventListener('touchmove', (event) => {
+    if (!start) return;
+    const touch = event.touches[0];
+    if (Math.abs(touch.clientX - start.x) > 12 || Math.abs(touch.clientY - start.y) > 12) {
+      moved = true;
+      cancel();
+    }
+  }, { passive: true });
+
+  el.addEventListener('touchend', (event) => {
+    cancel();
+    if (!start || moved) { start = null; return; }
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    start = null;
+    if (dx < -80 && Math.abs(dx) > Math.abs(dy) * 1.5) markUnknown();
+  }, { passive: true });
+
+  el.addEventListener('touchcancel', () => { cancel(); start = null; }, { passive: true });
+}
+
+/** 进入新题、或答题后揭晓答案时朗读单词。 */
+function autoplayWord(item) {
+  const p = state.practice;
+  if (!p || !settings.ttsEnabled()) return;
+  const canHear = p.mode === 'en_zh' || p.mode === 'listen';
+  if (!canHear && !p.answered) return;
+  const key = `${p.index}:${p.answered ? 'a' : 'q'}`;
+  if (p.spokenKey === key) return;
+  p.spokenKey = key;
+  speakWord(item.word);
+}
+
+let speechWarned = false;
+
+function speakWord(text) {
+  const error = speak(text);
+  if (error && !speechWarned) {
+    speechWarned = true;
+    toast(error);
+  }
+}
+
+/** 「我不会」：直接记为答错，进错题本并揭晓答案。 */
+function markUnknown() {
+  const p = state.practice;
+  if (!p || p.answered) return;
+  const item = p.items[p.index];
+  p.answered = true;
+  p.choice = null;
+  p.records.push({
+    wordId: item.wordId, word: item.word, meaning: item.meaning,
+    answer: item.answer, userAnswer: '我不会', correct: false,
+  });
+  renderPractice();
+  try {
+    repo.answer(item.wordId, p.mode, false);
+  } catch (err) {
+    toast(err.message);
   }
 }
 
@@ -929,7 +1040,214 @@ async function saveImport() {
   }
 }
 
-/* ---------- 对话框 ---------- */
+/* ---------- 学习报告 ---------- */
+
+const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
+
+async function renderReport() {
+  const goal = settings.dailyGoal();
+  const { summary, mastery, wrong } = repo.report(7, goal);
+  const accuracy = summary.totalAnswered
+    ? Math.round((summary.totalCorrect * 100) / summary.totalAnswered)
+    : 0;
+  const todayPercent = goal ? Math.min(100, Math.round((summary.todayAnswered * 100) / goal)) : 0;
+  const maxDay = Math.max(...summary.days.map((day) => day.answered), 1);
+  const lastKey = summary.days.length ? summary.days[summary.days.length - 1].date : '';
+
+  const todayHint = summary.todayAnswered >= goal
+    ? '今天的目标已经完成，继续保持'
+    : (summary.todayAnswered === 0 ? '今天还没开始，先来 10 道题？' : `还差 ${goal - summary.todayAnswered} 题完成今日目标`);
+
+  const chart = summary.days.map((day) => {
+    const height = Math.round((day.answered / maxDay) * 100);
+    const ms = new Date(`${day.date}T12:00:00`).getDay();
+    return `
+      <div class="chart-col${day.date === lastKey ? ' today' : ''}" title="${esc(day.date)} · ${day.answered} 题">
+        <div class="chart-bar"><i style="height:${height}%"></i></div>
+        <div class="chart-label">${WEEKDAY[ms]}</div>
+      </div>`;
+  }).join('');
+
+  app.innerHTML = `
+    <div class="center-col">
+      ${pageHead('学习报告')}
+      <section class="hero">
+        <div class="tag">今 日 进 度</div>
+        <div class="big">${summary.todayAnswered} / ${goal} 题</div>
+        <div class="bar"><i style="width:${todayPercent}%"></i></div>
+        <div class="sub">${esc(todayHint)}</div>
+      </section>
+
+      <div class="stat-grid">
+        <div class="card stat"><div class="num">${summary.streak} 天</div><div class="k">连续打卡</div></div>
+        <div class="card stat"><div class="num">${summary.totalAnswered} 题</div><div class="k">累计答题</div></div>
+      </div>
+
+      <div class="section-label">近 7 天</div>
+      <div class="card">
+        <div class="chart">${chart}</div>
+        <div class="hint" style="margin-top:12px">
+          累计正确率 ${accuracy}% · 答对 ${summary.totalCorrect} / ${summary.totalAnswered} 题 · 待复习 ${summary.dueReview} 词
+        </div>
+      </div>
+
+      <div class="section-label">掌握度</div>
+      <div class="card">
+        <div class="title">已掌握 ${mastery.mastered} / ${mastery.total} 词（${mastery.masteredPercent}%）</div>
+        <div class="bar on-light" style="margin-top:12px"><i style="width:${mastery.masteredPercent}%"></i></div>
+        <div class="hint" style="margin-top:12px">新词 ${mastery.fresh} · 学习中 ${mastery.learning} · 已掌握 ${mastery.mastered}</div>
+        <div class="hint">复习等级到 5 级（约 30 天）算掌握；答错会归零重来</div>
+      </div>
+
+      <div class="section-label">最该复习的词</div>
+      <div class="card">
+        ${wrong.length ? wrong.map((item) => `
+          <div class="wrong-row">
+            <b>${esc(item.word.word)}</b>
+            <span>${esc(item.word.pos ? `${item.word.pos} ${item.word.meaning}` : item.word.meaning)}</span>
+            <em>错 ${item.wrong} 次</em>
+          </div>`).join('') : '<div class="hint">还没有错题，继续保持</div>'}
+      </div>
+
+      <div class="footer-actions" style="margin-top:18px">
+        <button class="btn ghost" data-action="set-goal">设置每日目标</button>
+        <button class="btn" data-action="review" ${summary.dueReview ? '' : 'disabled'}>
+          ${summary.dueReview ? `复习 ${summary.dueReview} 个到期词` : '今天没有待复习'}
+        </button>
+      </div>
+
+      <label class="checkbox" style="margin-top:16px">
+        <input id="ttsInput" type="checkbox" ${settings.ttsEnabled() ? 'checked' : ''}>
+        练习时朗读单词
+      </label>
+      <div style="margin-top:4px">
+        <button class="btn text small" data-action="test-tts">试听发音</button>
+      </div>
+    </div>`;
+}
+
+/* ---------- 设置 ---------- */
+
+async function renderSettings() {
+  const info = repo.info();
+  const version = (state.about && state.about.version) || repo.VERSION;
+  const pref = themePref();
+  app.innerHTML = `
+    <div class="center-col">
+      ${pageHead('设置')}
+
+      <div class="section-label">学习</div>
+      <div class="card settings">
+        <div class="line">
+          <div><div class="title">每日目标</div><small>5 – 200 题，学习报告按它算进度</small></div>
+          <input id="goalInput" class="input narrow" type="number" min="5" max="200" value="${settings.dailyGoal()}">
+        </div>
+        <div class="divider"></div>
+        <label class="checkbox">
+          <input id="ttsInput" type="checkbox" ${settings.ttsEnabled() ? 'checked' : ''}>
+          练习时自动朗读单词
+        </label>
+        <div style="margin-top:12px">
+          <button class="btn ghost small" data-action="test-tts">试听发音</button>
+        </div>
+      </div>
+
+      <div class="section-label">外观</div>
+      <div class="card">
+        <label class="hint" for="themeSelect">深色模式</label>
+        <select id="themeSelect" class="field">
+          <option value="auto" ${pref === 'auto' ? 'selected' : ''}>跟随系统</option>
+          <option value="light" ${pref === 'light' ? 'selected' : ''}>浅色</option>
+          <option value="dark" ${pref === 'dark' ? 'selected' : ''}>深色</option>
+        </select>
+      </div>
+
+      <div class="section-label">数据</div>
+      <div class="card">
+        <div class="hint">词库、星标、错题、打卡和复习进度都保存在这台设备的浏览器里，不上传任何服务器。</div>
+        <div class="footer-actions" style="margin-top:12px">
+          <button class="btn ghost" data-action="export-backup">导出备份</button>
+          <button class="btn ghost" data-action="import-backup">恢复备份</button>
+        </div>
+        <div class="hint" style="margin-top:10px">${esc(storageLine(info))}</div>
+        <input id="backupFile" type="file" accept="application/json,.json" hidden>
+        <div style="margin-top:14px">
+          <button class="btn text small" data-action="clear-log">清空练习记录</button>
+        </div>
+      </div>
+
+      <div class="section-label">其他</div>
+      <div class="card settings">
+        <div class="line">
+          <div><div class="title">隐私政策</div><small>会存哪些数据、什么时候联网</small></div>
+          <button class="btn small ghost" data-action="privacy">查看</button>
+        </div>
+        <div class="divider"></div>
+        <div class="line">
+          <div><div class="title">关于</div><small>版本 ${esc(version)}</small></div>
+          <button class="btn small ghost" data-action="about">查看</button>
+        </div>
+      </div>
+    </div>`;
+
+  const backupFile = document.getElementById('backupFile');
+  if (backupFile) {
+    backupFile.addEventListener('change', async () => {
+      const file = backupFile.files && backupFile.files[0];
+      if (!file) return;
+      await restoreBackup(file);
+      backupFile.value = '';
+    });
+  }
+}
+
+/* ---------- 隐私政策 ---------- */
+
+async function renderPrivacy() {
+  let text = '';
+  try {
+    const res = await fetch('./assets/privacy.txt', { cache: 'no-cache' });
+    if (res.ok) text = await res.text();
+  } catch {
+    text = '';
+  }
+  app.innerHTML = `
+    <div class="center-col">
+      ${pageHead('隐私政策')}
+      <div class="card">
+        <div class="prose">${text ? esc(text) : '隐私政策加载失败，请联网刷新后再试。'}</div>
+      </div>
+    </div>`;
+}
+
+/* ---------- 今日复习 ---------- */
+
+async function startReview() {
+  let data;
+  try {
+    data = repo.dueReview();
+  } catch (err) {
+    toast(err.message);
+    return;
+  }
+  if (!data.words.length) {
+    toast('今天没有待复习的单词');
+    if (location.hash.includes('report')) renderReport();
+    return;
+  }
+  const choice = await chooseMode(`复习 ${data.words.length} 个单词`);
+  if (!choice) return;
+  state.mode = choice;
+  prefs.set('worddrill.mode', choice);
+  await startPractice(
+    { count: data.words.length, start: 1, end: Number.MAX_SAFE_INTEGER, allowRepeat: true },
+    data.words.map((word) => word.id),
+    'review',
+    '复习',
+  );
+}
+
+/* ---------- 通用对话框：选题 */
 
 function confirmDialog(title, message, okLabel) {
   return new Promise((resolve) => {
@@ -974,6 +1292,63 @@ function chooseCount(total) {
   });
 }
 
+function chooseMode(title) {
+  return new Promise((resolve) => {
+    const overlay = openModal(`
+      <div class="about-card" style="text-align:left">
+        <h3 style="margin-top:0">${esc(title)}</h3>
+        <div class="mode-list">
+          ${Object.keys(state.modes).map((key) => {
+    const info = state.modes[key] || {};
+    return `<button class="mode" data-mode="${key}">
+              <span><b>${esc(info.label || key)}</b><small>${esc(info.desc || '')}</small></span>
+            </button>`;
+  }).join('')}
+        </div>
+      </div>`);
+    overlay.querySelectorAll('[data-mode]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const value = button.dataset.mode;
+        overlay.remove();
+        resolve(value);
+      });
+    });
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) { overlay.remove(); resolve(''); }
+    });
+  });
+}
+
+function askGoal() {
+  return new Promise((resolve) => {
+    const overlay = openModal(`
+      <div class="about-card" style="text-align:left">
+        <h3 style="margin-top:0">每日目标</h3>
+        <p class="hint">5 – 200 题，学习报告按它算今天完成了多少。</p>
+        <input id="goalDialogInput" class="input" type="number" min="${settings.GOAL_MIN}" max="${settings.GOAL_MAX}" value="${settings.dailyGoal()}">
+        <div class="footer-actions" style="margin-top:18px">
+          <button class="btn ghost" data-close>取消</button>
+          <button class="btn" data-ok>保存</button>
+        </div>
+      </div>`);
+    overlay.querySelector('[data-ok]').addEventListener('click', () => {
+      const value = Number(overlay.querySelector('#goalDialogInput').value);
+      if (!Number.isFinite(value) || value < settings.GOAL_MIN || value > settings.GOAL_MAX) {
+        toast(`请输入 ${settings.GOAL_MIN} – ${settings.GOAL_MAX} 之间的数字`);
+        return;
+      }
+      const saved = settings.setDailyGoal(value);
+      overlay.remove();
+      toast(`每日目标已设为 ${saved} 题`);
+      if (location.hash.includes('report')) renderReport();
+      resolve(saved);
+    });
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) { overlay.remove(); resolve(0); }
+    });
+  });
+}
+
 function showAbout() {
   const info = state.about || {};
   const rows = [];
@@ -1009,6 +1384,34 @@ app.addEventListener('click', async (event) => {
       break;
     case 'about':
       showAbout();
+      break;
+    case 'report':
+      location.hash = '#/report';
+      break;
+    case 'settings':
+      location.hash = '#/settings';
+      break;
+    case 'privacy':
+      location.hash = '#/privacy';
+      break;
+    case 'review':
+      await startReview();
+      break;
+    case 'set-goal':
+      await askGoal();
+      break;
+    case 'test-tts': {
+      const error = speak('hello, this is a test');
+      toast(error || '已调用浏览器语音，能听到声音说明正常');
+      break;
+    }
+    case 'speak': {
+      const p = state.practice;
+      if (p && p.items[p.index]) speakWord(p.items[p.index].word);
+      break;
+    }
+    case 'dont-know':
+      markUnknown();
       break;
     case 'mode':
       state.mode = target.dataset.mode;
@@ -1158,6 +1561,27 @@ app.addEventListener('change', (event) => {
     state.end = null;
     localStorage.setItem('worddrill.bookId', state.bookId);
     renderHome();
+  }
+  if (event.target.id === 'goalInput') {
+    const value = Number(event.target.value);
+    if (!Number.isFinite(value) || value < settings.GOAL_MIN || value > settings.GOAL_MAX) {
+      toast(`每日目标请填 ${settings.GOAL_MIN} – ${settings.GOAL_MAX}`);
+      event.target.value = settings.dailyGoal();
+      return;
+    }
+    const saved = settings.setDailyGoal(value);
+    event.target.value = saved;
+    toast(`每日目标已设为 ${saved} 题`);
+  }
+  if (event.target.id === 'ttsInput') {
+    settings.setTtsEnabled(event.target.checked);
+    if (event.target.checked) speakWord('hello');
+    toast(event.target.checked ? '已开启朗读' : '已关闭朗读');
+  }
+  if (event.target.id === 'themeSelect') {
+    setThemePref(event.target.value);
+    const label = { auto: '跟随系统', light: '浅色', dark: '深色' }[event.target.value] || '跟随系统';
+    toast(`外观：${label}`);
   }
 });
 

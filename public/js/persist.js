@@ -5,6 +5,8 @@
  *   worddrill.db.words     全部单词（最大的一份，只在增删改词时重写）
  *   worddrill.db.mistakes  错题
  *   worddrill.db.log       练习记录
+ *   worddrill.db.review    复习排期（间隔重复）
+ *   worddrill.db.daily     每天答题量（打卡与报告）
  *   worddrill.db.meta      自增 id / 结构版本
  *
  * 写入做了 120ms 防抖，页面隐藏或关闭前会立即落盘。
@@ -67,6 +69,8 @@ export function createStorage(options = {}) {
       words: readJSON('words', []),
       mistakes: readJSON('mistakes', []),
       practiceLog: readJSON('log', []),
+      review: readJSON('review', []),
+      daily: readJSON('daily', []),
     });
   }
 
@@ -76,6 +80,8 @@ export function createStorage(options = {}) {
     else if (part === 'words') storage.setItem(`${PREFIX}words`, JSON.stringify(db.words));
     else if (part === 'mistakes') storage.setItem(`${PREFIX}mistakes`, JSON.stringify(db.mistakes));
     else if (part === 'log') storage.setItem(`${PREFIX}log`, JSON.stringify(db.practiceLog));
+    else if (part === 'review') storage.setItem(`${PREFIX}review`, JSON.stringify(db.review));
+    else if (part === 'daily') storage.setItem(`${PREFIX}daily`, JSON.stringify(db.daily));
     else if (part === 'meta') {
       storage.setItem(`${PREFIX}meta`, JSON.stringify({
         version: db.version || 1,
@@ -113,7 +119,7 @@ export function createStorage(options = {}) {
     if (!db) return;
     if (part === 'all') {
       dirty.add('meta'); dirty.add('books'); dirty.add('words');
-      dirty.add('mistakes'); dirty.add('log');
+      dirty.add('mistakes'); dirty.add('log'); dirty.add('review'); dirty.add('daily');
     } else {
       dirty.add(part);
       if (part === 'books' || part === 'words') dirty.add('meta');
@@ -124,14 +130,14 @@ export function createStorage(options = {}) {
   function clear() {
     dirty.clear();
     if (timer) { clearTimeout(timer); timer = 0; }
-    ['books', 'words', 'mistakes', 'log', 'meta'].forEach((key) => {
+    ['books', 'words', 'mistakes', 'log', 'review', 'daily', 'meta'].forEach((key) => {
       try { storage.removeItem(PREFIX + key); } catch { /* 忽略 */ }
     });
   }
 
   function usageBytes() {
     let total = 0;
-    for (const key of ['books', 'words', 'mistakes', 'log', 'meta']) {
+    for (const key of ['books', 'words', 'mistakes', 'log', 'review', 'daily', 'meta']) {
       try {
         const raw = storage.getItem(PREFIX + key);
         if (raw) total += raw.length * 2;

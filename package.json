@@ -1,8 +1,8 @@
 {
   "name": "worddrill-web",
-  "version": "1.0.0",
+  "version": "1.3.3",
   "private": true,
-  "description": "单词练习 Web 版：英译汉 / 汉译英 / 单词默写，纯静态、可离线安装",
+  "description": "单词练习 Web 版：英译汉 / 汉译英 / 单词默写 / 听音拼写，纯静态、可离线安装",
   "license": "GPL-3.0-only",
   "type": "module",
   "main": "server.js",
