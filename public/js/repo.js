@@ -8,7 +8,7 @@ import { parseMarkdown, decodeText } from './vocab.js';
 import { parseAbout } from './about.js';
 import { createStorage, getLocalStorage, memoryStorage, exportBackup, parseBackup } from './persist.js';
 
-export const VERSION = '1.3.3';
+export const VERSION = 'web-1.1';
 export { MODES, isCorrect };
 
 const SEED_URL = new URL('../assets/words3500.json', import.meta.url);

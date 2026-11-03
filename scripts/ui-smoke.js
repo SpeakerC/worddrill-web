@@ -145,8 +145,8 @@ async function main() {
     await page.click('[data-action="about"]');
     await page.waitForSelector('.about-card');
     const about = await page.textContent('.about-card');
-    check(about.includes('版本 1.3.3'), '关于页应显示版本');
-    check(about.includes('2816 .'), '关于页应显示开发者');
+    check(about.includes('版本 web-1.1'), '关于页应显示版本');
+    check(about.includes('zlt mteacase'), '关于页应显示开发者');
     await page.keyboard.press('Escape');
 
     /* ---------- 刷新后数据还在 ---------- */
