@@ -360,8 +360,13 @@ async function renderHome() {
       <div class="sub">${esc(sub)}</div>
     </section>
 
-    <div class="home-grid" style="margin-top:20px">
+    <div class="home-grid" style="margin-top:16px">
       <div class="stack">
+        <div class="card">
+          <div class="hint" style="margin-bottom:8px">练习方式</div>
+          <div class="mode-list">${modes}</div>
+        </div>
+
         <div class="card book-card">
           <label class="hint" for="bookPick">词库</label>
           <div class="book-picker" id="bookPicker">
@@ -384,39 +389,36 @@ async function renderHome() {
                 </button>`).join('')}
             </div>
           </div>
-          <div class="row" style="margin-top:12px">
+          <div class="row" style="margin-top:10px">
             <div class="meta"></div>
             <button class="btn text small" data-action="list">词表</button>
             <button class="btn text small" data-action="books">词库管理</button>
           </div>
         </div>
-
-        <div class="card">
-          <div class="hint" style="margin-bottom:10px">练习方式</div>
-          <div class="mode-list">${modes}</div>
-        </div>
       </div>
 
       <div class="stack">
-        <div class="card settings">
+        <div class="card settings start-card">
           <div class="line">
             <div><div class="title">每次题量</div><small>1 – 200 题</small></div>
             <input id="countInput" class="input narrow" type="number" min="1" max="200" value="${state.count}">
           </div>
           <div class="divider"></div>
-          <div class="title">练习范围（词库索引）</div>
-          <div class="hint">${max ? `可填 1 – ${max}；留空表示整本词库` : '没有可输入的索引'}</div>
-          <div class="range-row" style="margin-top:8px">
-            <input id="startInput" class="input" type="number" min="1" placeholder="起始" value="${state.start ?? ''}">
-            <input id="endInput" class="input" type="number" min="1" placeholder="结束" value="${state.end ?? ''}">
+          <div class="line" style="padding-bottom:0">
+            <div><div class="title">练习范围</div><small>${max ? `1 – ${max}，留空为整本` : '没有可输入的索引'}</small></div>
+            <div class="range-mini">
+              <input id="startInput" class="input narrow" type="number" min="1" placeholder="起" value="${state.start ?? ''}">
+              <span>–</span>
+              <input id="endInput" class="input narrow" type="number" min="1" placeholder="止" value="${state.end ?? ''}">
+            </div>
           </div>
           <label class="checkbox">
             <input id="repeatInput" type="checkbox" ${state.allowRepeat ? 'checked' : ''}>
-            允许重复抽到已练过的单词
+            允许重复抽到已练过的
           </label>
         </div>
 
-        <button class="btn block" data-action="start" ${max ? '' : 'disabled'}>开始练习</button>
+        <button class="btn block start-btn" data-action="start" ${max ? '' : 'disabled'}>开始练习</button>
 
         <button class="btn ghost block review-btn" data-action="review" ${reviewTotal ? '' : 'disabled'}>
           ${reviewTotal
@@ -424,14 +426,10 @@ async function renderHome() {
     : '练过之后就能复习'}
         </button>
         ${reviewTotal
-    ? `<div class="hint" style="text-align:center;margin-top:-6px">
+    ? `<div class="hint review-hint">
             ${due ? `今天到期 ${due} 个` : '今天的都复习过了'} · 练过的 ${reviewTotal} 个都能复习
           </div>`
     : ''}
-
-        <div style="text-align:center">
-          <button class="btn text small" data-action="clear-log">清空练习记录</button>
-        </div>
       </div>
     </div>
     </div>`;

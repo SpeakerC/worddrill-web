@@ -1832,3 +1832,39 @@ button, .mode, .opt, .word-row, .drop { -webkit-tap-highlight-color: transparent
   .nav-drawer, .nav-sheet, .nav-sheet .nav-item { animation: none; }
 }
 
+
+/* ---------- 移动端三点靠最左，标题仍居中 ---------- */
+
+@media (max-width: 760px) {
+  /* 标题绝对定位居中，不再被三点推挤 */
+  .topbar { position: relative; justify-content: center; }
+  .topbar h1 { position: relative; z-index: 1; }
+  .topbar .nav-toggle { position: absolute; left: 0; top: 50%; transform: translateY(-50%); }
+
+  /* 其它页：三点在左，返回键紧跟其后，标题仍在返回键右侧 */
+  .page-head .nav-toggle { flex: none; margin-left: -6px; }
+}
+
+/* 首页卡片紧凑一点，PC 上不用翻页 */
+.home-page .home-grid { gap: 12px 16px; }
+.home-page .stack { gap: 10px; }
+.home-page .card { padding: 16px 18px; }
+.home-page .mode { padding: 9px 11px; }
+.home-page .mode small { margin-top: 1px; }
+.home-page .start-card .line { padding: 8px 0; }
+.home-page .start-card .divider { margin: 6px 0; }
+.home-page .start-btn { height: 46px; }
+.home-page .review-btn { height: 42px; margin-top: 2px; }
+.home-page .review-hint { margin-top: -4px; }
+
+.range-mini { display: flex; align-items: center; gap: 5px; color: var(--hint); font-size: 12px; }
+.range-mini .input.narrow { width: 58px; }
+
+/* 练习方式改为两列，省掉一屏高度 */
+@media (min-width: 761px) {
+  .home-page .mode-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .home-page .mode { padding: 10px 12px; }
+  .home-page .mode small { font-size: 11.5px; line-height: 1.35; }
+  /* 两列后左右两栏顶部对齐，不用再多留间距 */
+  .home-page .home-grid { align-items: start; }
+}
