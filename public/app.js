@@ -446,11 +446,29 @@ function bindBookPicker() {
     menu.hidden = true;
     trigger.setAttribute('aria-expanded', 'false');
     wrap.classList.remove('open');
+    menu.style.top = '';
+    menu.style.maxHeight = '';
   };
   const open = () => {
     menu.hidden = false;
     trigger.setAttribute('aria-expanded', 'true');
     wrap.classList.add('open');
+    /* 手机上菜单是 fixed，需要自己算位置：贴在词库按钮下方，下方空间不够就往上弹 */
+    if (window.matchMedia('(max-width: 760px)').matches) {
+      const rect = trigger.getBoundingClientRect();
+      const gap = 6;
+      const below = window.innerHeight - rect.bottom - gap - 12;
+      const above = rect.top - gap - 12;
+      const wanted = 300;
+      if (below >= Math.min(wanted, 160) || below >= above) {
+        menu.style.top = `${Math.round(rect.bottom + gap)}px`;
+        menu.style.maxHeight = `${Math.round(Math.max(below, 120))}px`;
+      } else {
+        const h = Math.min(wanted, Math.max(above, 120));
+        menu.style.top = `${Math.round(rect.top - gap - h)}px`;
+        menu.style.maxHeight = `${Math.round(h)}px`;
+      }
+    }
   };
 
   trigger.addEventListener('click', (event) => {

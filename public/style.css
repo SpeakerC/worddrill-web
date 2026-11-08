@@ -162,7 +162,8 @@ a { color: var(--link); }
 
 .hero {
   position: relative;
-  overflow: hidden;
+  /* 不能裁：首页词库下拉要溢出卡片，裁了会被切掉一截 */
+  overflow: visible;
   border-radius: 22px;
   background: linear-gradient(135deg, #4a63e4 0%, #3348c4 55%, #2a3a96 100%);
   color: #fff;
@@ -1938,4 +1939,42 @@ button, .mode, .opt, .word-row, .drop { -webkit-tap-highlight-color: transparent
 
 @media (max-width: 560px) {
   .wrong-row b { max-width: 38%; }
+}
+
+
+/* ---------- 词库下拉不再被进度卡裁剪 ---------- */
+
+/* 卡片本身 overflow: visible 后，圆角仍要保住：背景用伪元素裁圆角，文字区不受影响 */
+.home-page .hero {
+  isolation: isolate;
+}
+.home-page .hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: inherit;
+  pointer-events: none;
+}
+
+.hero-book .book-menu {
+  z-index: 60;
+  max-height: min(46vh, 300px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 手机端菜单用 fixed 定位，彻底脱离任何祖先的裁剪与层叠上下文 */
+@media (max-width: 760px) {
+  .hero-book .book-menu {
+    position: fixed;
+    top: auto;
+    left: 12px;
+    right: 12px;
+    margin-top: 6px;
+    max-width: none;
+    min-width: 0;
+    width: auto;
+  }
 }
