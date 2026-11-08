@@ -112,6 +112,8 @@ for (const event of ['pagehide', 'visibilitychange', 'beforeunload']) {
 async function route() {
   const hash = location.hash.replace(/^#\/?/, '');
   const [name] = hash.split('/');
+  // 页面级样式钩子，每次路由先清掉，避免残留
+  app.classList.remove('on-report');
   try {
     if (name === 'practice') return renderPractice();
     if (name === 'result') return renderResult();
@@ -1054,6 +1056,7 @@ async function saveImport() {
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
 async function renderReport() {
+  app.classList.add('on-report');
   const goal = settings.dailyGoal();
   const { summary, mastery, wrong } = repo.report(7, goal);
   const accuracy = summary.totalAnswered
@@ -1083,61 +1086,102 @@ async function renderReport() {
   const hasReview = reviewTotal > 0;
 
   app.innerHTML = `
-    <div class="center-col">
-      ${pageHead('学习报告')}
-      <section class="hero">
-        <div class="tag">今 日 进 度</div>
-        <div class="big">${summary.todayAnswered} / ${goal} 题</div>
-        <div class="bar"><i style="width:${todayPercent}%"></i></div>
-        <div class="sub">${esc(todayHint)}</div>
-      </section>
+    <div class="center-col wide report-page">
+      ${pageHead('学习报告', '<button class="btn small ghost" data-action="set-goal">调整目标</button>')}
 
-      <div class="stat-grid">
-        <div class="card stat"><div class="num">${summary.streak} 天</div><div class="k">连续打卡</div></div>
-        <div class="card stat"><div class="num">${summary.totalAnswered} 题</div><div class="k">累计答题</div></div>
-      </div>
+      <div class="report-grid">
+        <section class="report-tile span-2">
+          <section class="hero">
+            <div class="tag">今 日 进 度</div>
+            <div class="big">${summary.todayAnswered} / ${goal} 题</div>
+            <div class="bar"><i style="width:${todayPercent}%"></i></div>
+            <div class="sub">${esc(todayHint)}</div>
+          </section>
+        </section>
 
-      <div class="section-label">近 7 天</div>
-      <div class="card">
-        <div class="chart">${chart}</div>
-        <div class="hint" style="margin-top:12px">
-          累计正确率 ${accuracy}% · 答对 ${summary.totalCorrect} / ${summary.totalAnswered} 题 · 练过 ${reviewTotal} 词，今天待复习 ${due} 词
-        </div>
-      </div>
+        <section class="report-tile span-2">
+          <div class="stat-grid">
+            <div class="card stat">
+              <div class="num">${summary.streak} <em>天</em></div>
+              <div class="k">连续打卡</div>
+            </div>
+            <div class="card stat">
+              <div class="num">${summary.totalAnswered} <em>题</em></div>
+              <div class="k">累计答题</div>
+            </div>
+            <div class="card stat">
+              <div class="num">${accuracy}<em>%</em></div>
+              <div class="k">累计正确率</div>
+            </div>
+            <div class="card stat">
+              <div class="num">${reviewTotal} <em>词</em></div>
+              <div class="k">练过待复习${due ? ` · 今日到期 ${due}` : ''}</div>
+            </div>
+          </div>
+        </section>
 
-      <div class="section-label">掌握度</div>
-      <div class="card">
-        <div class="title">已掌握 ${mastery.mastered} / ${mastery.total} 词（${mastery.masteredPercent}%）</div>
-        <div class="bar on-light" style="margin-top:12px"><i style="width:${mastery.masteredPercent}%"></i></div>
-        <div class="hint" style="margin-top:12px">新词 ${mastery.fresh} · 学习中 ${mastery.learning} · 已掌握 ${mastery.mastered}</div>
-        <div class="hint">复习等级到 5 级（约 30 天）算掌握；答错会归零重来</div>
-      </div>
+        <section class="report-tile">
+          <div class="section-label">近 7 天</div>
+          <div class="card report-card">
+            <div class="chart">${chart}</div>
+            <div class="divider"></div>
+            <div class="report-facts">
+              <div><b>${summary.totalCorrect}</b><span>答对题数</span></div>
+              <div><b>${summary.totalAnswered - summary.totalCorrect}</b><span>答错题数</span></div>
+              <div><b>${mastery.total}</b><span>涉及词数</span></div>
+            </div>
+          </div>
+        </section>
 
-      <div class="section-label">最该复习的词</div>
-      <div class="card">
-        ${wrong.length ? wrong.map((item) => `
-          <div class="wrong-row">
-            <b>${esc(item.word.word)}</b>
-            <span>${esc(item.word.pos ? `${item.word.pos} ${item.word.meaning}` : item.word.meaning)}</span>
-            <em>错 ${item.wrong} 次</em>
-          </div>`).join('') : '<div class="hint">还没有错题，继续保持</div>'}
-      </div>
+        <section class="report-tile">
+          <div class="section-label">掌握度</div>
+          <div class="card report-card">
+            <div class="report-figure">
+              <div class="figure-num">${mastery.masteredPercent}<em>%</em></div>
+              <div class="figure-k">已掌握 ${mastery.mastered} / ${mastery.total} 词</div>
+            </div>
+            <div class="bar on-light"><i style="width:${mastery.masteredPercent}%"></i></div>
+            <div class="report-facts" style="margin-top:14px">
+              <div><b>${mastery.fresh}</b><span>新词</span></div>
+              <div><b>${mastery.learning}</b><span>学习中</span></div>
+              <div><b>${mastery.mastered}</b><span>已掌握</span></div>
+            </div>
+            <div class="hint" style="margin-top:12px">复习等级到 5 级（约 30 天）算掌握；答错会归零重来</div>
+          </div>
+        </section>
 
-      <div class="footer-actions" style="margin-top:18px">
-        <button class="btn ghost" data-action="set-goal">设置每日目标</button>
-        <button class="btn" data-action="review" ${hasReview ? '' : 'disabled'}>
-          ${hasReview
+        <section class="report-tile span-2">
+          <div class="section-label">最该复习的词</div>
+          <div class="card report-card">
+            ${wrong.length ? `<div class="wrong-grid">${wrong.map((item) => `
+              <div class="wrong-row">
+                <b>${esc(item.word.word)}</b>
+                <span>${esc(item.word.pos ? `${item.word.pos} ${item.word.meaning}` : item.word.meaning)}</span>
+                <em>错 ${item.wrong} 次</em>
+              </div>`).join('')}</div>` : '<div class="hint">还没有错题，继续保持</div>'}
+          </div>
+        </section>
+
+        <section class="report-tile span-2">
+          <div class="report-actions">
+            <button class="btn" data-action="review" ${hasReview ? '' : 'disabled'}>
+              ${hasReview
     ? (due ? `复习 ${due} 个到期词` : `复习练过的 ${reviewTotal} 个词`)
     : '练过之后就能复习'}
-        </button>
-      </div>
-
-      <label class="checkbox" style="margin-top:16px">
-        <input id="ttsInput" type="checkbox" ${settings.ttsEnabled() ? 'checked' : ''}>
-        练习时朗读单词
-      </label>
-      <div style="margin-top:4px">
-        <button class="btn text small" data-action="test-tts">试听发音</button>
+            </button>
+            <div class="setting-row" style="padding:0">
+              <div class="setting-text">
+                <div class="title">练习时朗读单词</div>
+                <small>自动读出当前单词的发音</small>
+              </div>
+              <label class="switch" title="练习时自动朗读">
+                <input id="ttsInput" type="checkbox" ${settings.ttsEnabled() ? 'checked' : ''}>
+                <span class="switch-track"><span class="switch-thumb"></span></span>
+              </label>
+            </div>
+            <button class="btn ghost small" data-action="test-tts">试听发音</button>
+          </div>
+        </section>
       </div>
     </div>`;
 }
