@@ -3,6 +3,7 @@ import { richText } from './js/about.js';
 import * as settings from './js/settings.js';
 import { speak, supported as speechSupported, warmup as warmupSpeech } from './js/speech.js';
 import { applyTheme, themePref, setThemePref, watchSystem } from './js/theme.js';
+import { mistakesCsv, csvFileName, CSV_BOM } from './js/csv.js';
 
 /* ============================================================
  * 单词练习 · 前端（纯静态版，数据存在浏览器里）
@@ -712,7 +713,7 @@ async function renderList() {
         ${filter === 'blocked' ? '<button class="btn text small" data-action="show-all">返回词表</button>' : ''}
         ${filter === 'all' && !book.builtin ? `<button class="btn text small" data-action="append">追加单词</button>` : ''}
         ${filter === 'blocked' && data.words.length ? '<button class="btn text small" data-action="unblock-all">全部恢复</button>' : ''}
-        ${isMistakes && data.words.length ? '<button class="btn text small danger-text" data-action="clear-mistakes">一键清空</button>' : ''}`)}
+        ${isMistakes && data.words.length ? '<button class="btn text small" data-action="export-mistakes">导出</button><button class="btn text small danger-text" data-action="clear-mistakes">一键清空</button>' : ''}`)}
       ${sortTabs}
       <div class="toolbar-row">
         <input id="searchInput" class="search" placeholder="${isMistakes ? '搜索错题单词或释义' : '搜索单词或释义'}" value="${esc(state.search)}">
@@ -1038,6 +1039,23 @@ function exportBackup() {
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   downloadFile(`单词练习备份-${stamp}.json`, repo.backupText());
   toast('备份已导出');
+}
+
+/** 导出当前词库的错题为 CSV。 */
+function exportMistakesCsv(items, format) {
+  const text = CSV_BOM + mistakesCsv(items, format);
+  const name = csvFileName(format.kind, format.keep);
+  downloadFile(name, text, 'text/csv;charset=utf-8');
+  toast(`已导出 ${items.length} 个词`);
+}
+
+/** 把 listMistakes 的扁平词条与 counts/streaks 合并成 csv.js 需要的形状。 */
+function mistakesForCsv(data) {
+  return data.words.map((word) => ({
+    word,
+    wrong: (data.counts && data.counts[word.id]) || 0,
+    streak: (data.streaks && data.streaks[word.id]) || 0,
+  }));
 }
 
 async function restoreBackup(file) {
@@ -1725,6 +1743,42 @@ function confirmDialog(title, message, okLabel) {
   });
 }
 
+/** 导出错题：先选版本，练习版再选留英文还是留中文。 */
+function chooseExportFormat(count) {
+  return new Promise((resolve) => {
+    const overlay = openModal(`
+      <div class="about-card" style="text-align:left">
+        <h3 style="margin-top:0">导出错题</h3>
+        <p class="hint" style="margin:0 0 12px">共 ${count} 个词</p>
+        <div class="mode-list">
+          <button class="mode" data-format="review">
+            <span><b>复习版</b><small>英汉对照，带词性与答错次数</small></span>
+          </button>
+          <button class="mode" data-format="practice-en">
+            <span><b>练习版 · 只留英文</b><small>看英文回忆中文，适合自测</small></span>
+          </button>
+          <button class="mode" data-format="practice-zh">
+            <span><b>练习版 · 只留中文</b><small>看中文拼写英文，适合默写</small></span>
+          </button>
+        </div>
+        <div class="footer-actions" style="margin-top:16px">
+          <button class="btn ghost" data-close>取消</button>
+        </div>
+      </div>`);
+    overlay.querySelectorAll('[data-format]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const value = button.dataset.format;
+        overlay.remove();
+        resolve(value === 'review' ? { kind: 'review', keep: 'en' } : { kind: 'practice', keep: value === 'practice-zh' ? 'zh' : 'en' });
+      });
+    });
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) resolve(null);
+    });
+    overlay.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => resolve(null)));
+  });
+}
+
 function chooseCount(total) {
   return new Promise((resolve) => {
     const options = [10, 20, total].filter((n, i, arr) => n <= total && arr.indexOf(n) === i);
@@ -2007,6 +2061,17 @@ app.addEventListener('click', async (event) => {
       );
       break;
     }
+    case 'export-mistakes': {
+      const book = currentBook();
+      const data = await loadListData(book, 'mistakes');
+      if (!data.words.length) { toast('错题本是空的'); return; }
+      const format = await chooseExportFormat(data.words.length);
+      if (!format) return;
+      try {
+        exportMistakesCsv(mistakesForCsv(data), format);
+      } catch (err) { toast(err.message); }
+      break;
+    }
     case 'clear-mistakes': {
       const book = currentBook();
       const ok = await confirmDialog('清空错题本？', `清空「${book.name}」的错题记录，星标不受影响。`, '清空');
@@ -2184,6 +2249,7 @@ boot().catch((err) => {
     <h2>启动失败</h2><p>${esc(err.message)}</p>
     <p class="hint">确认浏览器允许本地存储后刷新重试。</p></div>`;
 });
+
 
 
 

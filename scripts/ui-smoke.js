@@ -125,6 +125,26 @@ async function main() {
     check(answered.practiced > 0, '应有练习记录');
     check(answered.onlyCorrect >= 0, '答对的词数应为非负');
 
+    /* ---------- 错题导出：三个选项都在 ---------- */
+    await page.evaluate(() => { location.hash = '#/'; });
+    await page.waitForSelector('[data-action="list-mistakes"]');
+    await page.click('[data-action="list-mistakes"]');
+    await page.waitForTimeout(400);
+    const exportBtn = await page.$('[data-action="export-mistakes"]');
+    if (exportBtn) {
+      await exportBtn.click();
+      await page.waitForSelector('[data-format="review"]');
+      const formats = await page.$$eval('[data-format]', (els) => els.map((e) => e.dataset.format));
+      check(formats.length === 3, `导出应有三个选项，实际 ${JSON.stringify(formats)}`);
+      check(formats.includes('practice-zh'), '练习版应支持只留中文');
+      await page.click('.modal [data-close]');
+      await page.waitForTimeout(200);
+    } else {
+      check(true, '本轮没产生错题，跳过导出检查');
+    }
+    await page.evaluate(() => { location.hash = '#/'; });
+    await page.waitForSelector('.hero');
+
     await page.click('[data-action="review"]');
     await page.waitForSelector('.modal [data-mode="en_zh"]');
     await page.click('.modal [data-mode="en_zh"]');
@@ -219,7 +239,7 @@ async function main() {
     await page.click('[data-action="about"]');
     await page.waitForSelector('.about-card');
     const about = await page.textContent('.about-card');
-    check(about.includes('版本 web-1.10'), '关于页应显示版本');
+    check(about.includes('版本 web-1.11'), '关于页应显示版本');
     check(about.includes('zlt mteacase'), '关于页应显示开发者');
     check(!about.includes('开放源代码许可'), '开源许可应已移出关于弹窗');
     await page.keyboard.press('Escape');
@@ -285,6 +305,7 @@ main().catch((err) => {
   console.error('✖ 冒烟失败：', err.message);
   process.exit(1);
 });
+
 
 
 
