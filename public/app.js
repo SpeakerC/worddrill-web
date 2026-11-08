@@ -1148,101 +1148,140 @@ async function renderSettings() {
   const version = (state.about && state.about.version) || repo.VERSION;
   const pref = themePref();
   app.innerHTML = `
-    <div class="center-col">
+    <div class="center-col wide settings-page">
       ${pageHead('设置')}
 
-      <div class="section-label">学习</div>
-      <div class="card settings">
-        <div class="line">
-          <div><div class="title">每日目标</div><small>5 – 200 题，学习报告按它算进度</small></div>
-          <input id="goalInput" class="input narrow" type="number" min="5" max="200" value="${settings.dailyGoal()}">
-        </div>
-        <div class="divider"></div>
-        <label class="checkbox">
-          <input id="ttsInput" type="checkbox" ${settings.ttsEnabled() ? 'checked' : ''}>
-          练习时自动朗读单词
-        </label>
-        <div style="margin-top:12px">
-          <button class="btn ghost small" data-action="test-tts">试听发音</button>
-        </div>
-        <div class="divider"></div>
-        <div class="line" style="padding-bottom:0">
-          <div><div class="title">练习记录</div><small>清空后所有单词重新算「没练过」</small></div>
-          <button class="btn ghost small" data-action="clear-log">清空</button>
-        </div>
-      </div>
-
-      <div class="section-label">外观</div>
-      <div class="card">
-        <label class="hint" for="themeSelect">深色模式</label>
-        <select id="themeSelect" class="field">
-          <option value="auto" ${pref === 'auto' ? 'selected' : ''}>跟随系统</option>
-          <option value="light" ${pref === 'light' ? 'selected' : ''}>浅色</option>
-          <option value="dark" ${pref === 'dark' ? 'selected' : ''}>深色</option>
-        </select>
-      </div>
-
-      <div class="section-label">数据与备份</div>
-      <div class="card settings">
-        <div class="setting-row" style="padding-top:2px">
-          <div class="setting-text">
-            <div class="title">自动备份</div>
-            <small>按间隔把当前数据存成本地快照，误删或数据异常时可恢复</small>
+      <div class="settings-grid">
+        <section class="settings-tile">
+          <div class="section-label">学习</div>
+          <div class="card settings">
+            <div class="line">
+              <div><div class="title">每日目标</div><small>5 – 200 题，学习报告按它算进度</small></div>
+              <div class="unit-field">
+                <input id="goalInput" class="input narrow" type="number" min="5" max="200" value="${settings.dailyGoal()}">
+                <span class="unit">题</span>
+              </div>
+            </div>
+            <div class="divider"></div>
+            <div class="setting-row" style="padding-top:0">
+              <div class="setting-text">
+                <div class="title">自动朗读</div>
+                <small>练习时自动读出单词发音</small>
+              </div>
+              <label class="switch" title="练习时自动朗读">
+                <input id="ttsInput" type="checkbox" ${settings.ttsEnabled() ? 'checked' : ''}>
+                <span class="switch-track"><span class="switch-thumb"></span></span>
+              </label>
+            </div>
+            <div class="setting-row" style="padding-bottom:0">
+              <div class="setting-text">
+                <div class="title">试听发音</div>
+                <small>检查浏览器语音是否正常</small>
+              </div>
+              <button class="btn ghost small" data-action="test-tts">试听</button>
+            </div>
+            <div class="divider"></div>
+            <div class="setting-row" style="padding-bottom:0">
+              <div class="setting-text">
+                <div class="title">练习记录</div>
+                <small>清空后所有单词重新算「没练过」</small>
+              </div>
+              <button class="btn ghost small danger-text" data-action="clear-log">清空</button>
+            </div>
           </div>
-          <label class="switch" title="启用自动备份">
-            <input id="autobackupInput" type="checkbox" ${settings.autoBackupEnabled() ? 'checked' : ''}>
-            <span class="switch-track"><span class="switch-thumb"></span></span>
-          </label>
-        </div>
+        </section>
 
-        <div class="setting-row">
-          <div class="setting-text">
-            <div class="title">备份间隔</div>
-            <small>0 表示只在关闭页面前写入，不定时快照</small>
+        <section class="settings-tile">
+          <div class="section-label">外观</div>
+          <div class="card settings">
+            <div class="setting-row" style="padding-top:0">
+              <div class="setting-text">
+                <div class="title">深色模式</div>
+                <small>跟随系统或手动指定</small>
+              </div>
+              <select id="themeSelect" class="field compact">
+                <option value="auto" ${pref === 'auto' ? 'selected' : ''}>跟随系统</option>
+                <option value="light" ${pref === 'light' ? 'selected' : ''}>浅色</option>
+                <option value="dark" ${pref === 'dark' ? 'selected' : ''}>深色</option>
+              </select>
+            </div>
+            <div class="setting-row" style="padding-bottom:0">
+              <div class="setting-text">
+                <div class="title">练习时朗读单词</div>
+                <small>已在「学习」里设置，这里同步显示</small>
+              </div>
+              <span class="hint" id="ttsState">${settings.ttsEnabled() ? '已开启' : '已关闭'}</span>
+            </div>
           </div>
-          <div class="unit-field">
-            <input id="backupIntervalInput" class="input narrow" type="number" min="0" max="168" value="${settings.backupIntervalHours()}">
-            <span class="unit">小时</span>
+
+          <div class="section-label">其他</div>
+          <div class="card settings">
+            <div class="setting-row" style="padding-top:0">
+              <div class="setting-text">
+                <div class="title">隐私政策</div>
+                <small>会存哪些数据、什么时候联网</small>
+              </div>
+              <button class="btn small ghost" data-action="privacy">查看</button>
+            </div>
+            <div class="setting-row" style="padding-bottom:0">
+              <div class="setting-text">
+                <div class="title">关于</div>
+                <small>版本 ${esc(version)}</small>
+              </div>
+              <button class="btn small ghost" data-action="about">查看</button>
+            </div>
           </div>
-        </div>
+        </section>
 
-        <div class="setting-row">
-          <div class="setting-text">
-            <div class="title">保留份数</div>
-            <small>超出的旧快照会自动删除</small>
+        <section class="settings-tile span-2">
+          <div class="section-label">数据与备份</div>
+          <div class="card settings">
+            <div class="setting-row" style="padding-top:0">
+              <div class="setting-text">
+                <div class="title">自动备份</div>
+                <small>按间隔把当前数据存成本地快照，误删或数据异常时可恢复</small>
+              </div>
+              <label class="switch" title="启用自动备份">
+                <input id="autobackupInput" type="checkbox" ${settings.autoBackupEnabled() ? 'checked' : ''}>
+                <span class="switch-track"><span class="switch-thumb"></span></span>
+              </label>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-text">
+                <div class="title">备份间隔</div>
+                <small>0 表示只在关闭页面前写入，不定时快照</small>
+              </div>
+              <div class="unit-field">
+                <input id="backupIntervalInput" class="input narrow" type="number" min="0" max="168" value="${settings.backupIntervalHours()}">
+                <span class="unit">小时</span>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-text">
+                <div class="title">保留份数</div>
+                <small>超出的旧快照会自动删除</small>
+              </div>
+              <div class="unit-field">
+                <input id="backupKeepInput" class="input narrow" type="number" min="1" max="50" value="${settings.backupKeepCount()}">
+                <span class="unit">份</span>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="btn-row">
+              <button class="btn ghost small" data-action="export-backup">导出备份</button>
+              <button class="btn ghost small" data-action="import-backup">恢复备份</button>
+              <button class="btn ghost small" data-action="save-autobackup-now">立即存一份快照</button>
+              <button class="btn small danger-text" data-action="clear-backup-cache">清除缓存</button>
+            </div>
+
+            <div class="hint" style="margin-top:12px" id="backupStatus">${esc(backupStatusText())}</div>
+            <input id="backupFile" type="file" accept="application/json,.json" hidden>
           </div>
-          <div class="unit-field">
-            <input id="backupKeepInput" class="input narrow" type="number" min="1" max="50" value="${settings.backupKeepCount()}">
-            <span class="unit">份</span>
-          </div>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="btn-row">
-          <button class="btn ghost small" data-action="export-backup">导出备份</button>
-          <button class="btn ghost small" data-action="import-backup">恢复备份</button>
-        </div>
-        <div class="btn-row" style="margin-top:10px">
-          <button class="btn ghost small" data-action="save-autobackup-now">立即存一份快照</button>
-          <button class="btn small danger-text" data-action="clear-backup-cache">清除缓存</button>
-        </div>
-
-        <div class="hint" style="margin-top:12px" id="backupStatus">${esc(backupStatusText())}</div>
-        <input id="backupFile" type="file" accept="application/json,.json" hidden>
-      </div>
-
-      <div class="section-label">其他</div>
-      <div class="card settings">
-        <div class="line">
-          <div><div class="title">隐私政策</div><small>会存哪些数据、什么时候联网</small></div>
-          <button class="btn small ghost" data-action="privacy">查看</button>
-        </div>
-        <div class="divider"></div>
-        <div class="line">
-          <div><div class="title">关于</div><small>版本 ${esc(version)}</small></div>
-          <button class="btn small ghost" data-action="about">查看</button>
-        </div>
+        </section>
       </div>
     </div>`;
 
@@ -1253,6 +1292,13 @@ async function renderSettings() {
       if (!file) return;
       await restoreBackup(file);
       backupFile.value = '';
+    });
+  }
+  const ttsInput = document.getElementById('ttsInput');
+  if (ttsInput) {
+    ttsInput.addEventListener('change', () => {
+      const label = document.getElementById('ttsState');
+      if (label) label.textContent = ttsInput.checked ? '已开启' : '已关闭';
     });
   }
   syncAutoBackupUI();
