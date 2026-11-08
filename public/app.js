@@ -259,14 +259,40 @@ function openNavDrawer() {
   document.querySelectorAll('[data-action="open-nav"]').forEach((b) => b.setAttribute('aria-expanded', 'true'));
 }
 
-/** iOS Safari 没有安装按钮，只能用一句提示教用户加到主屏幕。 */function installTipHtml() {
-  if (isStandalone() || prefs.get('worddrill.installTip') === 'off') return '';
-  if (!isIos() && !isAndroid()) return '';
-  return `
-    <div class="install-tip">
-      <span>页面已支持移动端部署，详情请查看设置</span>
-      <button class="icon-btn" data-action="dismiss-install" title="不再提示">✕</button>
-    </div>`;
+/** 手机端首次打开首页时提示：已支持移动端部署，可在设置里下载 App。 */
+function maybeShowMobileTip() {
+  if (isStandalone() || prefs.get('worddrill.installTip') === 'off') return;
+  if (!isIos() && !isAndroid()) return;
+  if (!window.matchMedia('(max-width: 760px)').matches) return;
+  if (document.querySelector('.mobile-tip')) return;
+
+  const overlay = openModal(`
+    <div class="modal-card mobile-tip" role="dialog" aria-modal="true" aria-labelledby="mobileTipTitle">
+      <div class="mobile-tip-icon">
+        <img src="./icon.png" alt="">
+      </div>
+      <h2 id="mobileTipTitle">WordDrill 单词练习</h2>
+      <p>现已支持移动端部署，可在设置中下载</p>
+      <div class="mobile-tip-actions">
+        <button class="btn ghost" data-close data-action="dismiss-install">不再提示</button>
+        <button class="btn" data-action="tip-go-settings">去看看</button>
+      </div>
+    </div>`);
+  overlay.classList.add('modal-tip');
+
+  /* 弹窗挂在 body 上，app 上的点击委托收不到，这里自己处理 */
+  overlay.addEventListener('click', (event) => {
+    if (event.target.closest('[data-action="dismiss-install"]')) {
+      prefs.set('worddrill.installTip', 'off');
+      overlay.remove();
+      return;
+    }
+    if (event.target.closest('[data-action="tip-go-settings"]')) {
+      prefs.set('worddrill.installTip', 'off');
+      overlay.remove();
+      location.hash = '#/settings';
+    }
+  });
 }
 
 /** 太阳 / 月亮 主题开关，和「设置」标题同一行。 */
@@ -352,7 +378,6 @@ async function renderHome() {
   app.innerHTML = `
     <div class="center-col wide home-page">
     ${topbar()}
-    ${installTipHtml()}
     <section class="hero">
       <div class="hero-top">
         <div class="tag">本词库进度</div>
@@ -433,6 +458,7 @@ async function renderHome() {
     </div>`;
 
   bindBookPicker();
+  maybeShowMobileTip();
 }
 
 /** 首页词库下拉：点开、选中、点外面收起、Esc 收起。 */
@@ -2320,7 +2346,7 @@ app.addEventListener('click', async (event) => {
       break;
     case 'dismiss-install':
       prefs.set('worddrill.installTip', 'off');
-      document.querySelectorAll('.install-tip').forEach((el) => el.remove());
+      document.querySelectorAll('.install-tip, .modal').forEach((el) => el.remove());
       break;
     default:
       break;

@@ -1978,3 +1978,67 @@ button, .mode, .opt, .word-row, .drop { -webkit-tap-highlight-color: transparent
     width: auto;
   }
 }
+
+/* ---------- 手机端首页提示弹窗 ---------- */
+
+.modal-tip { align-items: center; }
+
+.mobile-tip {
+  width: 100%;
+  max-width: 320px;
+  padding: 24px 20px 18px;
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: 0 22px 48px rgba(15, 20, 40, 0.26);
+  text-align: center;
+  animation: tip-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.mobile-tip-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 12px;
+}
+.mobile-tip-icon img {
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  box-shadow: 0 8px 20px rgba(45, 60, 140, 0.22);
+}
+
+.mobile-tip h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+}
+
+.mobile-tip p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.mobile-tip-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+.mobile-tip-actions .btn {
+  flex: 1;
+  height: 42px;
+  font-size: 14.5px;
+  border-radius: 11px;
+}
+
+@keyframes tip-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-tip { animation: none; }
+}
