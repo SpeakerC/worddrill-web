@@ -6,10 +6,26 @@ import { Store } from './store.js';
 import { buildItems, MODES, isCorrect } from './quiz.js';
 import { parseMarkdown, decodeText } from './vocab.js';
 import { parseAbout } from './about.js';
-import { createStorage, getLocalStorage, memoryStorage, exportBackup, parseBackup } from './persist.js';
+import { createStorage, getLocalStorage, memoryStorage, exportBackup, parseBackup, clearCache } from './persist.js';
+import { autoBackupEnabled, backupIntervalHours, backupKeepCount } from './settings.js';
 
-export const VERSION = 'web-1.1';
+export const VERSION = 'web-1.2';
 export { MODES, isCorrect };
+
+let autoTimer = 0;
+
+/** 启动定时自动备份：每 interval 小时落盘一份快照到 localStorage。interval <= 0 不定时。 */
+function startAutoBackup() {
+  if (autoTimer) { clearInterval(autoTimer); autoTimer = 0; }
+  if (!autoBackupEnabled()) return;
+  const hours = backupIntervalHours();
+  if (hours <= 0) return;
+  const ms = hours * 60 * 60 * 1000;
+  autoTimer = setInterval(() => {
+    if (store) storage.saveAutoBackup(store.db, backupKeepCount());
+  }, ms);
+  // 不保存定时器到 unref，页面关闭时自然停止
+}
 
 const SEED_URL = new URL('../assets/words3500.json', import.meta.url);
 const ABOUT_URL = new URL('../assets/about.txt', import.meta.url);
@@ -70,6 +86,7 @@ export async function init(options = {}) {
   storage.bind(store.db);
   if (seeded) storage.save('all');
   about = await loadAbout();
+  startAutoBackup();
   return bootstrap();
 }
 
@@ -219,4 +236,57 @@ export function restoreText(text) {
 
 export function flush() {
   if (storage) storage.flush();
+}
+
+/** 自动备份开关 */
+export function getAutoBackupEnabled() {
+  return autoBackupEnabled();
+}
+export function setAutoBackupEnabled(enabled) {
+  const next = enabled ? 'on' : 'off';
+  try { localStorage.setItem('worddrill.autobackup', next); } catch { /* 忽略 */ }
+  startAutoBackup();
+  return next === 'on';
+}
+
+/** 自动备份间隔（小时） */
+export function getBackupIntervalHours() {
+  return backupIntervalHours();
+}
+export function setBackupIntervalHours(hours) {
+  try { localStorage.setItem('worddrill.backupInterval', String(hours)); } catch { /* 忽略 */ }
+  startAutoBackup();
+  return backupIntervalHours();
+}
+
+/** 最多保留多少份自动备份快照 */
+export function getBackupKeepCount() {
+  return backupKeepCount();
+}
+export function setBackupKeepCount(count) {
+  try { localStorage.setItem('worddrill.backupKeep', String(count)); } catch { /* 忽略 */ }
+  return backupKeepCount();
+}
+
+/** 立即保存一份自动备份快照，返回保留的份数（旧的会按上限删掉）。 */
+export function saveAutoBackupNow() {
+  if (!store) return 0;
+  return storage.saveAutoBackup(store.db, backupKeepCount());
+}
+
+/** 列出自动备份快照，新在前。 */
+export function listAutoBackups() {
+  if (!storage) return [];
+  return storage.listAutoBackups();
+}
+
+/** 清除全部自动备份快照，返回删掉的份数。 */
+export function clearAutoBackups() {
+  if (!storage) return 0;
+  return storage.clearAutoBackups();
+}
+
+/** 清除 Service Worker 离线缓存，返回删掉的缓存数。不删学习数据。 */
+export async function clearOfflineCache() {
+  return clearCache();
 }

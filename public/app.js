@@ -1176,6 +1176,26 @@ async function renderSettings() {
         </div>
       </div>
 
+      <div class="section-label">自动备份</div>
+      <div class="card settings">
+        <label class="checkbox">
+          <input id="autobackupInput" type="checkbox" ${settings.autoBackupEnabled() ? 'checked' : ''}>
+          启用自动备份（默认开启，关闭后不再定时存快照）
+        </label>
+        <div class="line" style="margin-top:10px">
+          <div><div class="title">备份间隔</div><small>0 表示只在关闭页面前写入，不定时快照</small></div>
+          <input id="backupIntervalInput" class="input narrow" type="number" min="0" max="168" value="${settings.backupIntervalHours()}"> 小时
+        </div>
+        <div class="line" style="margin-top:8px">
+          <div><div class="title">最多保留</div><small>份自动备份快照</small></div>
+          <input id="backupKeepInput" class="input narrow" type="number" min="1" max="50" value="${settings.backupKeepCount()}"> 份
+        </div>
+        <div style="margin-top:10px">
+          <button class="btn ghost small" data-action="save-autobackup-now">立即保存一次快照</button>
+          <button class="btn text small danger" data-action="clear-backup-cache">清除备份缓存</button>
+        </div>
+      </div>
+
       <div class="section-label">其他</div>
       <div class="card settings">
         <div class="line">
@@ -1531,6 +1551,24 @@ app.addEventListener('click', async (event) => {
       } catch (err) { toast(err.message); }
       break;
     }
+    case 'save-autobackup-now': {
+      try {
+        const kept = repo.saveAutoBackupNow();
+        toast(`已保存一次自动备份快照，保留最近 ${kept} 份`);
+      } catch (err) { toast(err.message); }
+      break;
+    }
+    case 'clear-backup-cache': {
+      const ok = await confirmDialog('清除备份缓存？', '会删除全部自动备份快照和 Service Worker 离线缓存，学习数据不受影响。建议先导出一份备份。', '清除');
+      if (!ok) return;
+      try {
+        const removed = repo.clearAutoBackups();
+        const caches = await repo.clearOfflineCache();
+        await renderSettings();
+        toast(`已清除 ${removed} 份自动备份快照、${caches} 个离线缓存`);
+      } catch (err) { toast(err.message); }
+      break;
+    }
     case 'open-book':
       state.bookId = Number(target.dataset.id);
       prefs.set('worddrill.bookId', state.bookId);
@@ -1582,6 +1620,20 @@ app.addEventListener('change', (event) => {
     setThemePref(event.target.value);
     const label = { auto: '跟随系统', light: '浅色', dark: '深色' }[event.target.value] || '跟随系统';
     toast(`外观：${label}`);
+  }
+  if (event.target.id === 'autobackupInput') {
+    settings.setAutoBackupEnabled(event.target.checked);
+    toast(event.target.checked ? '已开启自动备份' : '已关闭自动备份');
+  }
+  if (event.target.id === 'backupIntervalInput') {
+    const value = settings.setBackupIntervalHours(event.target.value);
+    event.target.value = value;
+    toast(`自动备份间隔：${value === 0 ? '仅关闭页面前写入' : value + ' 小时'}`);
+  }
+  if (event.target.id === 'backupKeepInput') {
+    const value = settings.setBackupKeepCount(event.target.value);
+    event.target.value = value;
+    toast(`最多保留 ${value} 份自动备份`);
   }
 });
 

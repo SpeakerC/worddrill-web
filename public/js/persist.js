@@ -12,6 +12,7 @@
  * 写入做了 120ms 防抖，页面隐藏或关闭前会立即落盘。
  */
 import { normalizeDb } from './store.js';
+import { BACKUP_KEEP_DEFAULT } from './settings.js';
 
 const PREFIX = 'worddrill.db.';
 const WRITE_DELAY = 120;
@@ -146,8 +147,75 @@ export function createStorage(options = {}) {
     return total;
   }
 
-  const api = { load, bind, save, flush, clear, usageBytes };
+  const AB_PREFIX = 'worddrill.ab.';
+  const AB_INDEX = 'worddrill.ab.index';
+
+  function abReadIndex() {
+    try {
+      const raw = storage.getItem(AB_INDEX);
+      return raw == null ? [] : JSON.parse(raw);
+    } catch { return []; }
+  }
+  function abWriteIndex(list) {
+    try { storage.setItem(AB_INDEX, JSON.stringify(list)); } catch { /* 忽略 */ }
+  }
+  function abTrim(keep) {
+    let list = abReadIndex();
+    list = list.filter((k) => { try { return storage.getItem(k) != null; } catch { return false; } });
+    list.sort((a, b) => Number(b.replace(AB_PREFIX, '')) - Number(a.replace(AB_PREFIX, '')));
+    const removed = list.slice(keep);
+    removed.forEach((k) => { try { storage.removeItem(k); } catch { /* 忽略 */ } });
+    abWriteIndex(list.slice(0, keep));
+    return removed.length;
+  }
+
+  /** 把当前 db 另存为一份自动备份快照到 localStorage，并按 keep 保留最新若干份。 */
+  function saveAutoBackup(db, keep = BACKUP_KEEP_DEFAULT) {
+    if (!db) return 0;
+    try {
+      const now = Date.now();
+      const key = `${AB_PREFIX}${now}`;
+      storage.setItem(key, JSON.stringify({
+        app: 'worddrill-web',
+        schema: 2,
+        exportedAt: new Date().toISOString(),
+        db,
+      }));
+      const list = abReadIndex();
+      if (!list.includes(key)) list.push(key);
+      abWriteIndex(list);
+      return abTrim(keep);
+    } catch { return 0; }
+  }
+
+  /** 列出现有自动备份快照，新在前。 */
+  function listAutoBackups() {
+    return abReadIndex()
+      .map((k) => ({ key: k, at: Number(k.replace(AB_PREFIX, '')) }))
+      .sort((a, b) => b.at - a.at);
+  }
+
+  /** 清除全部自动备份快照，返回删掉的份数。 */
+  function clearAutoBackups() {
+    const list = abReadIndex();
+    list.forEach((k) => { try { storage.removeItem(k); } catch { /* 忽略 */ } });
+    try { storage.removeItem(AB_INDEX); } catch { /* 忽略 */ }
+    return list.length;
+  }
+
+  const api = { load, bind, save, flush, clear, usageBytes, saveAutoBackup, listAutoBackups, clearAutoBackups };
   return api;
+}
+
+/** 清除 Service Worker 离线缓存（html/css/js/词表/图标），不删学习数据。 */
+export async function clearCache() {
+  if (!('caches' in globalThis)) return 0;
+  const names = await caches.keys();
+  let removed = 0;
+  for (const name of names) {
+    if (await caches.delete(name)) removed += 1;
+  }
+  return removed;
 }
 
 /** 导出成备份文件内容（兼容旧版 data/db.json 的结构，方便互相恢复）。 */

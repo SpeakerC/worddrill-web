@@ -135,6 +135,30 @@ async function main() {
     await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
     await page.selectOption('#themeSelect', 'auto');
 
+    /* ---------- 自动备份三项 ---------- */
+    await page.waitForSelector('#autobackupInput');
+    check(await page.isChecked('#autobackupInput'), '自动备份默认应开启');
+    await page.fill('#backupIntervalInput', '4');
+    await page.dispatchEvent('#backupIntervalInput', 'change');
+    await page.fill('#backupKeepInput', '5');
+    await page.dispatchEvent('#backupKeepInput', 'change');
+    const abPrefs = await page.evaluate(() => ({
+      enabled: localStorage.getItem('worddrill.autobackup'),
+      interval: localStorage.getItem('worddrill.backupInterval'),
+      keep: localStorage.getItem('worddrill.backupKeep'),
+    }));
+    check(abPrefs.interval === '4' && abPrefs.keep === '5', `备份间隔/保留数应保存，实际 ${JSON.stringify(abPrefs)}`);
+    await page.click('[data-action="save-autobackup-now"]');
+    await page.waitForTimeout(300);
+    const snapshots = await page.evaluate(() => window.worddrill.repo.listAutoBackups().length);
+    check(snapshots >= 1, `应立即生成一份自动备份快照，实际 ${snapshots}`);
+    await page.click('[data-action="clear-backup-cache"]');
+    await page.waitForSelector('.modal [data-ok]');
+    await page.click('.modal [data-ok]');
+    await page.waitForTimeout(500);
+    const afterClear = await page.evaluate(() => window.worddrill.repo.listAutoBackups().length);
+    check(afterClear === 0, `清除备份缓存后快照应为 0，实际 ${afterClear}`);
+
     await page.evaluate(() => { location.hash = '#/privacy'; });
     await page.waitForSelector('.prose');
     check((await page.textContent('.prose')).includes('隐私政策'), '隐私政策应能加载');
@@ -145,7 +169,7 @@ async function main() {
     await page.click('[data-action="about"]');
     await page.waitForSelector('.about-card');
     const about = await page.textContent('.about-card');
-    check(about.includes('版本 web-1.1'), '关于页应显示版本');
+    check(about.includes('版本 web-1.2'), '关于页应显示版本');
     check(about.includes('zlt mteacase'), '关于页应显示开发者');
     await page.keyboard.press('Escape');
 
