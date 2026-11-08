@@ -9,7 +9,7 @@ import { parseAbout } from './about.js';
 import { createStorage, getLocalStorage, memoryStorage, exportBackup, parseBackup, clearCache } from './persist.js';
 import { autoBackupEnabled, backupIntervalHours, backupKeepCount } from './settings.js';
 
-export const VERSION = 'web-1.5';
+export const VERSION = 'web-1.6';
 export { MODES, isCorrect };
 
 let autoTimer = 0;
@@ -136,8 +136,12 @@ export async function init(options = {}) {
   // 老用户：清单版本落后时同步一次——补种新增的词库、删掉已下架的，已有词库不动
   if (store.db.seedVersion < BUILTIN_VERSION) {
     const builtins = await loadBuiltins();
-    const { added, removed } = store.syncBuiltins(builtins, BUILTIN_VERSION, RETIRED_SEEDS);
-    if (added.length || removed.length) storage.save('all');
+    const { added, removed, merged } = store.syncBuiltins(builtins, BUILTIN_VERSION, RETIRED_SEEDS);
+    if (added.length || removed.length || merged) storage.save('all');
+  } else {
+    // 版本已最新：仍跑一次去重，收拾早期版本留下的重名内置词库（例如两个「高中 3500 词」）
+    const { merged } = store.dedupeBuiltins();
+    if (merged) storage.save('all');
   }
 
   // 老数据可能「练过但没有复习排期」，加载时补齐，保证所有练过的词都进复习
@@ -372,6 +376,7 @@ export function clearAutoBackups() {
 export async function clearOfflineCache() {
   return clearCache();
 }
+
 
 
 

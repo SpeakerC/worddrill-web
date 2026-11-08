@@ -118,22 +118,35 @@ export class Store {
   }
 
   /**
-   * 同步内置词库：补种清单里缺失的，删掉已下架的。
+   * 同步内置词库：补种清单里缺失的，删掉已下架的，顺带合并早期版本留下的重名词库。
    * 已有且仍在清单里的词库完全不动，所以不会重建用户删掉的内容、也不会重复写入。
    * @param {Array<{seedId:string,name:string,entries:Array}>} builtins 当前清单
    * @param {number} version 清单版本，写进 db.seedVersion
    * @param {string[]} retired 已下架的 seedId
-   * @returns {{added:string[], removed:string[], version:number}}
+   * @returns {{added:string[], removed:string[], merged:string[], version:number}}
    */
   syncBuiltins(builtins, version, retired = []) {
     const removed = this.removeBuiltins(retired);
+    const before = new Set(this.db.books.map((b) => b.id));
     const { added } = this.applyBuiltins(builtins, version);
-    return { added, removed, version: this.db.seedVersion };
+    // applyBuiltins 可能顺手合并掉重复词库，把它们也算进 removed
+    const alive = new Set(this.db.books.map((b) => b.id));
+    const merged = [...before].filter((id) => !alive.has(id)).length;
+    return { added, removed, merged, version: this.db.seedVersion };
   }
 
-  /** 已有某本内置词库？按 seedId 判断，用户自己导入的同名词库不算。 */
-  hasSeed(seedId) {
-    return this.db.books.some((b) => b.builtin && b.seedId === seedId);
+  /**
+   * 已有某本内置词库？
+   * 优先按 seedId 判断；同时对「早期版本种下、没有 seedId 的内置词库」按名字兜底，
+   * 否则老数据会被当成"没有"，于是重复种出一模一样的一本（曾出现过两个「高中 3500 词」）。
+   * 用户自建的词库 builtin 为 false，不会被算进来。
+   */
+  hasSeed(seedId, name = '') {
+    return this.db.books.some((b) => {
+      if (!b.builtin) return false;
+      if (b.seedId) return b.seedId === seedId;
+      return Boolean(name) && b.name === name;
+    });
   }
 
   /**
@@ -147,7 +160,11 @@ export class Store {
     const added = [];
     for (const item of builtins) {
       if (!item || !item.seedId || !Array.isArray(item.entries) || !item.entries.length) continue;
-      if (this.hasSeed(item.seedId)) continue;
+      if (this.hasSeed(item.seedId, item.name)) {
+        // 已有（可能是早期没有 seedId 的内置词库）：补上 seedId，以后就按 id 认了
+        this.adoptSeed(item.seedId, item.name);
+        continue;
+      }
       this.seedBuiltin(item.entries, { name: item.name, seedId: item.seedId });
       added.push(item.name);
     }
@@ -156,6 +173,69 @@ export class Store {
       this.change('meta');
     }
     return { added, version: this.db.seedVersion };
+  }
+
+  /**
+   * 给早期版本种下、没有 seedId 的内置词库补上 seedId。
+   * 同名的多本（曾经因为认不出而重复种出）只认最早的一本，其余视为重复删掉，
+   * 删的时候只清它自己的单词与记录，最早那本的进度不受影响。
+   * @returns {string[]} 被合并掉的重复词库名
+   */
+  adoptSeed(seedId, name) {
+    const matches = this.db.books
+      .filter((b) => b.builtin && (b.seedId === seedId || (!b.seedId && b.name === name)))
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || a.id - b.id);
+    if (!matches.length) return [];
+    const [keep, ...dupes] = matches;
+    if (!keep.seedId) {
+      keep.seedId = seedId;
+      this.change('books');
+    }
+    const removed = [];
+    for (const dupe of dupes) {
+      const ids = new Set(this.db.words.filter((w) => w.bookId === dupe.id).map((w) => w.id));
+      this.db.books = this.db.books.filter((b) => b.id !== dupe.id);
+      this.db.words = this.db.words.filter((w) => !ids.has(w.id));
+      this.db.mistakes = this.db.mistakes.filter((m) => !ids.has(m.wordId));
+      this.db.practiceLog = this.db.practiceLog.filter((p) => !ids.has(p.wordId));
+      this.db.review = this.db.review.filter((r) => !ids.has(r.wordId));
+      removed.push(dupe.name);
+    }
+    if (removed.length) this.change('all');
+    return removed;
+  }
+
+  /**
+   * 收拾重名的内置词库（早期版本重复播种留下的，例如两个「高中 3500 词」）。
+   * 每本内置词库只保留最早的一份，其余连同它的单词与记录一起删掉。
+   * 不依赖清单版本，所以已经在最新版本上的用户也能被修好。
+   * @returns {{merged:number}}
+   */
+  dedupeBuiltins() {
+    // 两本内置词库算重复的条件：seedId 相同，或名字相同（早期版本没有 seedId）
+    const isSame = (a, b) => (a.seedId && b.seedId ? a.seedId === b.seedId : a.name === b.name);
+    const keptList = [];
+    const drop = new Set();
+    for (const book of [...this.db.books].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || a.id - b.id)) {
+      if (!book.builtin) continue;
+      const kept = keptList.find((k) => isSame(k, book));
+      if (!kept) { keptList.push(book); continue; }
+      // 先出现的留下；后来的同名书若带了 seedId 而 kept 没有，就把 seedId 补给 kept
+      if (!kept.seedId && book.seedId) {
+        kept.seedId = book.seedId;
+        this.change('books');
+      }
+      drop.add(book.id);
+    }
+    if (!drop.size) return { merged: 0 };
+    const ids = new Set(this.db.words.filter((w) => drop.has(w.bookId)).map((w) => w.id));
+    this.db.books = this.db.books.filter((b) => !drop.has(b.id));
+    this.db.words = this.db.words.filter((w) => !ids.has(w.id));
+    this.db.mistakes = this.db.mistakes.filter((m) => !ids.has(m.wordId));
+    this.db.practiceLog = this.db.practiceLog.filter((p) => !ids.has(p.wordId));
+    this.db.review = this.db.review.filter((r) => !ids.has(r.wordId));
+    this.change('all');
+    return { merged: drop.size };
   }
 
   /** 整体替换（恢复备份用）。旧备份里练过但没排期的词会一起补齐。 */

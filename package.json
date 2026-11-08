@@ -1,6 +1,6 @@
 {
   "name": "worddrill-web",
-  "version": "1.5.0-web",
+  "version": "1.6.0-web",
   "private": true,
   "description": "单词练习 Web 版：英译汉 / 汉译英 / 单词默写 / 听音拼写，纯静态、可离线安装",
   "license": "GPL-3.0-only",
@@ -20,6 +20,7 @@
     "playwright-core": "^1.64.1"
   }
 }
+
 
 
 

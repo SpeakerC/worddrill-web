@@ -204,7 +204,7 @@ async function main() {
     await page.click('[data-action="about"]');
     await page.waitForSelector('.about-card');
     const about = await page.textContent('.about-card');
-    check(about.includes('版本 web-1.5'), '关于页应显示版本');
+    check(about.includes('版本 web-1.6'), '关于页应显示版本');
     check(about.includes('zlt mteacase'), '关于页应显示开发者');
     await page.keyboard.press('Escape');
 
@@ -263,6 +263,7 @@ main().catch((err) => {
   console.error('✖ 冒烟失败：', err.message);
   process.exit(1);
 });
+
 
 
 

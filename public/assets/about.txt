@@ -1,5 +1,5 @@
 名称 = 单词练习
-版本 = web-1.5
+版本 = web-1.6
 
 开发者 = zlt mteacase
 
@@ -11,3 +11,4 @@
 信息 = 同步 | 复现大部分 Android 1.3 特性
 
 备注 = [开放源代码许可](https://github.com/SpeakerC/worddrill-web/blob/main/LICENSE) 仅供学习交流使用。词库来自开源项目，准确性不 100% 保证。
+
