@@ -150,10 +150,11 @@ function topbar() {
 
 /** iOS Safari 没有安装按钮，只能用一句提示教用户加到主屏幕。 */
 function installTipHtml() {
-  if (isStandalone() || prefs.get('worddrill.installTip') === 'off' || !isIos()) return '';
+  if (isStandalone() || prefs.get('worddrill.installTip') === 'off') return '';
+  if (!isIos() && !isAndroid()) return '';
   return `
     <div class="install-tip">
-      <span>点 Safari 底部的分享按钮 →「添加到主屏幕」，以后没网也能用</span>
+      <span>页面已支持移动端部署，详情请查看设置</span>
       <button class="icon-btn" data-action="dismiss-install" title="不再提示">✕</button>
     </div>`;
 }
@@ -1010,9 +1011,16 @@ async function renderBooks() {
 }
 
 function storageLine(info) {
-  const kb = Math.round(info.usageBytes / 1024);
   if (!info.persistent) return '浏览器不允许本地存储，本次打开的修改在关闭后会丢失';
-  return `已用 ${kb} KB · 保存在本机浏览器，不上传任何服务器`;
+  return `已用 ${formatSize(info.usageBytes)} · 保存在本机浏览器，不上传任何服务器`;
+}
+
+/** 字节数说成人话：不足 1MB 用 KB，否则用 MB。 */
+function formatSize(bytes) {
+  const n = Number(bytes) || 0;
+  const mb = n / (1024 * 1024);
+  if (mb >= 1) return `${mb.toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(n / 1024))} KB`;
 }
 
 function downloadFile(name, text, type = 'application/json') {
@@ -1448,7 +1456,9 @@ async function renderSettings() {
               <span class="hint" id="ttsState">${settings.ttsEnabled() ? '已开启' : '已关闭'}</span>
             </div>
           </div>
+        </section>
 
+        <section class="settings-tile">
           <div class="section-label">其他</div>
           <div class="card settings">
             <div class="setting-row" style="padding-top:0">
@@ -1472,6 +1482,13 @@ async function renderSettings() {
               </div>
               <button class="btn small ghost" data-action="privacy">查看</button>
             </div>
+            <div class="setting-row">
+              <div class="setting-text">
+                <div class="title">开放源代码许可</div>
+                <small>MIT 协议，词库来自开源项目</small>
+              </div>
+              <a class="btn small ghost" href="https://github.com/SpeakerC/worddrill-web/blob/main/LICENSE" target="_blank" rel="noopener">查看</a>
+            </div>
             <div class="setting-row" style="padding-bottom:0">
               <div class="setting-text">
                 <div class="title">关于</div>
@@ -1482,7 +1499,7 @@ async function renderSettings() {
           </div>
         </section>
 
-        <section class="settings-tile span-2">
+        <section class="settings-tile">
           <div class="section-label">数据与备份</div>
           <div class="card settings">
             <div class="setting-row" style="padding-top:0">
@@ -2156,6 +2173,7 @@ async function registerServiceWorker() {
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches
   || window.navigator.standalone === true;
 const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+const isAndroid = () => /android/i.test(navigator.userAgent);
 
 /* 方便调试和自动化测试 */
 window.worddrill = { repo };
@@ -2166,6 +2184,8 @@ boot().catch((err) => {
     <h2>启动失败</h2><p>${esc(err.message)}</p>
     <p class="hint">请确认浏览器允许本地存储，然后刷新页面重试。</p></div>`;
 });
+
+
 
 
 

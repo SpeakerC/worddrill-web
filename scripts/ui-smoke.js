@@ -173,6 +173,18 @@ async function main() {
     await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
     await page.selectOption('#themeSelect', 'auto');
 
+    /* ---------- 设置页拼图：备份块不再是整行，其他里有开源许可 ---------- */
+    const settingsTiles = await page.evaluate(() => [...document.querySelectorAll('.settings-tile')].map((el) => {
+      const label = el.querySelector('.section-label');
+      const r = el.getBoundingClientRect();
+      return { label: label ? label.textContent : '', width: Math.round(r.width) };
+    }));
+    check(settingsTiles.length === 4, `设置页应有 4 块拼图，实际 ${settingsTiles.length}`);
+    const backupTile = settingsTiles.find((t) => t.label === '数据与备份');
+    check(Boolean(backupTile), '设置页应有「数据与备份」块');
+    check(backupTile && backupTile.width < 500, '数据与备份应与其他块同宽，不独占整行');
+    check(settingsTiles.some((t) => t.label === '其他'), '设置页应有「其他」块');
+
     /* ---------- 自动备份三项 ---------- */
     await page.waitForSelector('#autobackupInput', { state: 'attached' });
     check(await page.isChecked('#autobackupInput'), '自动备份默认应开启');
@@ -207,9 +219,16 @@ async function main() {
     await page.click('[data-action="about"]');
     await page.waitForSelector('.about-card');
     const about = await page.textContent('.about-card');
-    check(about.includes('版本 web-1.9'), '关于页应显示版本');
+    check(about.includes('版本 web-1.10'), '关于页应显示版本');
     check(about.includes('zlt mteacase'), '关于页应显示开发者');
+    check(!about.includes('开放源代码许可'), '开源许可应已移出关于弹窗');
     await page.keyboard.press('Escape');
+
+    /* ---------- 词库管理：已用空间用 MB ---------- */
+    await page.evaluate(() => { location.hash = '#/books'; });
+    await page.waitForSelector('.center-col');
+    const booksText = await page.textContent('.center-col');
+    check(/已用\s*[\d.]+\s*MB/.test(booksText), `已用空间应以 MB 计，实际：${(booksText.match(/已用[^·]*/) || ['无'])[0]}`);
 
     /* ---------- 刷新后数据还在 ---------- */
     await page.evaluate(() => { location.hash = '#/'; });
@@ -266,6 +285,7 @@ main().catch((err) => {
   console.error('✖ 冒烟失败：', err.message);
   process.exit(1);
 });
+
 
 
 
