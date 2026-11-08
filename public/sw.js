@@ -86,18 +86,34 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 图片、词表这类不常改的：先用缓存秒开，同时后台更新
+  // 图片、词表这类不常改的：先用缓存秒开，同时后台更新。
+  // 缓存命中时，返回给页面的是 hit，network 拿到的 response 没人消费，
+  // 这时直接写缓存即可；只有未命中才把它原样交给页面，所以只在那种情况下 clone。
   event.respondWith(
     caches.match(request).then((hit) => {
-      const network = fetch(request)
+      if (hit) {
+        // 后台更新缓存，结果不交给页面
+        fetch(request)
+          .then((response) => {
+            if (response && response.ok) {
+              return caches.open(CACHE).then((cache) => cache.put(request, response));
+            }
+            return undefined;
+          })
+          .catch(() => {});
+        return hit;
+      }
+      return fetch(request)
         .then((response) => {
           if (response && response.ok) {
-            caches.open(CACHE).then((cache) => cache.put(request, response.clone()));
+            const copy = response.clone();
+            event.waitUntil(
+              caches.open(CACHE).then((cache) => cache.put(request, copy)).catch(() => {}),
+            );
           }
           return response;
         })
         .catch(() => hit);
-      return hit || network;
     }),
   );
 });
