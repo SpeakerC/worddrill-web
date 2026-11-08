@@ -221,6 +221,7 @@ async function renderHome() {
 
   app.innerHTML = `
     ${topbar()}
+    <div class="center-col wide home-page">
     ${installTipHtml()}
     <section class="hero">
       <div class="tag">本词库进度</div>
@@ -289,6 +290,7 @@ async function renderHome() {
           <button class="btn text small" data-action="clear-log">清空练习记录</button>
         </div>
       </div>
+    </div>
     </div>`;
 }
 
@@ -1518,7 +1520,7 @@ async function renderSettings() {
 
             <div class="divider"></div>
 
-            <div class="btn-row">
+            <div class="btn-row backup-actions">
               <button class="btn ghost small" data-action="export-backup">导出备份</button>
               <button class="btn ghost small" data-action="import-backup">恢复备份</button>
               <button class="btn ghost small" data-action="save-autobackup-now">立即存一份快照</button>
@@ -2164,6 +2166,8 @@ boot().catch((err) => {
     <h2>启动失败</h2><p>${esc(err.message)}</p>
     <p class="hint">请确认浏览器允许本地存储，然后刷新页面重试。</p></div>`;
 });
+
+
 
 
 
