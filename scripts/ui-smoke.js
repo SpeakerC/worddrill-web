@@ -72,6 +72,16 @@ async function main() {
     /* ---------- 屏蔽 / 恢复 ---------- */
     await page.evaluate(() => { location.hash = '#/'; });
     await page.waitForSelector('.hero');
+
+    /* ---------- 首页词库选择（自定义下拉） ---------- */
+    check((await page.$('select#bookSelect')) === null, '首页不应再用浏览器原生 select');
+    await page.click('#bookPick');
+    await page.waitForSelector('.book-menu:not([hidden])');
+    check((await page.$$('.book-option')).length > 0, '词库菜单应有选项');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    check(await page.evaluate(() => document.querySelector('.book-menu').hidden), 'Esc 应能收起词库菜单');
+
     await page.evaluate(() => { location.hash = '#/list'; });
     await page.waitForFunction(() => document.querySelectorAll('.word-row').length === 2);
 
@@ -246,7 +256,7 @@ async function main() {
     await page.click('[data-action="about"]');
     await page.waitForSelector('.about-card');
     const about = await page.textContent('.about-card');
-    check(about.includes('版本 web-1.13'), '关于页应显示版本');
+    check(about.includes('版本 web-1.14'), '关于页应显示版本');
     check(about.includes('zlt mteacase'), '关于页应显示开发者');
     check(!about.includes('开放源代码许可'), '开源许可应已移出关于弹窗');
     await page.keyboard.press('Escape');
@@ -312,6 +322,7 @@ main().catch((err) => {
   console.error('✖ 冒烟失败：', err.message);
   process.exit(1);
 });
+
 
 
 

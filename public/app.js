@@ -253,9 +253,7 @@ async function renderHome() {
     ? `索引 1 – ${max} · 还有 ${Math.max(stats.wordCount - stats.practiced, 0)} 词未练${stats.blockedCount ? ` · 屏蔽 ${stats.blockedCount} 个` : ''}`
     : (stats.blockedCount ? `${stats.blockedCount} 个单词都被屏蔽了，恢复后才会出现` : '这个词库还没有单词');
 
-  const bookOptions = state.books
-    .map((b) => `<option value="${b.id}" ${b.id === state.bookId ? 'selected' : ''}>${esc(b.name)}（${b.wordCount} 词）</option>`)
-    .join('');
+  const books = state.books || [];
 
   const modes = Object.keys(state.modes).map((key) => {
     const info = state.modes[key] || {};
@@ -280,10 +278,29 @@ async function renderHome() {
     <div class="home-grid" style="margin-top:20px">
       <div class="stack">
         <div class="card book-card">
-          <label class="hint" for="bookSelect">词库</label>
-          <select id="bookSelect" class="field">${bookOptions}</select>
+          <label class="hint" for="bookPick">词库</label>
+          <div class="book-picker" id="bookPicker">
+            <button type="button" class="book-select" id="bookPick" aria-haspopup="listbox" aria-expanded="false">
+              <span class="book-select-main">
+                <span class="book-select-name">${esc(book.name)}</span>
+                <span class="book-select-meta">${book.wordCount} 词${book.blockedCount ? ` · 屏蔽 ${book.blockedCount}` : ''}</span>
+              </span>
+              <svg class="book-select-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div class="book-menu" role="listbox" hidden>
+              ${books.map((b) => `
+                <button type="button" class="book-option${b.id === book.id ? ' active' : ''}" role="option"
+                        aria-selected="${b.id === book.id}" data-book="${b.id}">
+                  <span class="book-option-main">
+                    <span class="book-option-name">${esc(b.name)}</span>
+                    <span class="book-option-meta">${b.wordCount} 词${b.blockedCount ? ` · 屏蔽 ${b.blockedCount}` : ''}</span>
+                  </span>
+                  <svg class="book-option-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+                </button>`).join('')}
+            </div>
+          </div>
           <div class="row" style="margin-top:12px">
-            <div class="meta">共 ${book.wordCount} 词${book.blockedCount ? ` · 屏蔽 ${book.blockedCount}` : ''}</div>
+            <div class="meta"></div>
             <button class="btn text small" data-action="list">词表</button>
             <button class="btn text small" data-action="books">词库管理</button>
           </div>
@@ -339,6 +356,50 @@ async function renderHome() {
       </div>
     </div>
     </div>`;
+
+  bindBookPicker();
+}
+
+/** 首页词库下拉：点开、选中、点外面收起、Esc 收起。 */
+function bindBookPicker() {
+  const picker = document.getElementById('bookPicker');
+  if (!picker) return;
+  const trigger = picker.querySelector('#bookPick');
+  const menu = picker.querySelector('.book-menu');
+  const close = () => {
+    menu.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+    picker.classList.remove('open');
+  };
+  const open = () => {
+    menu.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    picker.classList.add('open');
+  };
+
+  trigger.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (menu.hidden) open(); else close();
+  });
+
+  menu.querySelectorAll('[data-book]').forEach((option) => {
+    option.addEventListener('click', () => {
+      const id = Number(option.dataset.book);
+      close();
+      if (id === state.bookId) return;
+      state.bookId = id;
+      state.start = null;
+      state.end = null;
+      localStorage.setItem('worddrill.bookId', id);
+      renderHome();
+    });
+  });
+
+  picker.addEventListener('click', (event) => event.stopPropagation());
+  document.addEventListener('click', close, { once: true });
+  document.addEventListener('keydown', function onKey(event) {
+    if (event.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
+  });
 }
 
 /* ---------- 练习 ---------- */
@@ -2193,13 +2254,6 @@ app.addEventListener('click', async (event) => {
 });
 
 app.addEventListener('change', (event) => {
-  if (event.target.id === 'bookSelect') {
-    state.bookId = Number(event.target.value);
-    state.start = null;
-    state.end = null;
-    localStorage.setItem('worddrill.bookId', state.bookId);
-    renderHome();
-  }
   if (event.target.id === 'goalInput') {
     const value = Number(event.target.value);
     if (!Number.isFinite(value) || value < settings.GOAL_MIN || value > settings.GOAL_MAX) {
