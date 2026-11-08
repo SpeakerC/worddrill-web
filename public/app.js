@@ -305,7 +305,7 @@ function mobileAppDownloadHtml() {
         </svg>
         下载安卓 App（${apk.version}）
       </a>
-      <small>APK 安装包 · 与网页版数据互通</small>
+      <small>APK 安装包 · 可在设置中导入网页数据</small>
     </div>`;
 }
 
