@@ -12,6 +12,7 @@ import { nextLevel, nextDueAt, dayKey, recentDayKeys, streak } from './review.js
 export function emptyDb() {
   return {
     version: 2,
+    seedVersion: 0,
     nextBookId: 1,
     nextWordId: 1,
     books: [],
@@ -38,6 +39,7 @@ export function normalizeDb(raw) {
   db.daily = Array.isArray(db.daily) ? db.daily : [];
   if (!Number.isFinite(raw && raw.nextBookId)) db.nextBookId = maxId(db.books) + 1;
   if (!Number.isFinite(raw && raw.nextWordId)) db.nextWordId = maxId(db.words) + 1;
+  if (!Number.isFinite(raw && raw.seedVersion)) db.seedVersion = 0;
   return db;
 }
 
@@ -58,10 +60,21 @@ export class Store {
 
   // ---------- 初始化 ----------
 
-  /** 用内置词表播种（只在没有词库时调用一次）。 */
-  seedBuiltin(entries, name = '高中 3500 词') {
+  /**
+   * 播种一本内置词库。只在「还没有同款内置词库」时新建，改动只影响词库本身，
+   * 不碰用户已有的练习记录、错题、星标。
+   * @param {Array<{w:string,pos?:string,m:string}>} entries
+   * @param {{name?:string, seedId?:string}} options seedId 用来判断这本词库是否已存在
+   */
+  seedBuiltin(entries, { name = '高中 3500 词', seedId = '' } = {}) {
     const now = Date.now();
-    const book = { id: this.db.nextBookId++, name, builtin: true, createdAt: now };
+    const book = {
+      id: this.db.nextBookId++,
+      name,
+      builtin: true,
+      seedId: seedId || name,
+      createdAt: now,
+    };
     this.db.books.push(book);
     entries.forEach((entry, i) => {
       this.db.words.push({
@@ -78,6 +91,33 @@ export class Store {
     });
     this.change('all');
     return book;
+  }
+
+  /** 已有某本内置词库？按 seedId 判断，用户自己导入的同名词库不算。 */
+  hasSeed(seedId) {
+    return this.db.books.some((b) => b.builtin && b.seedId === seedId);
+  }
+
+  /**
+   * 按内置词库清单补种：只补当前缺失的词库，已存在的跳过。
+   * 用来让老用户在不丢数据的前提下拿到新增的内置词库。
+   * @param {Array<{seedId:string,name:string,entries:Array}>} builtins
+   * @param {number} version 清单版本，写进 db.seedVersion
+   * @returns {{added:string[], version:number}}
+   */
+  applyBuiltins(builtins, version) {
+    const added = [];
+    for (const item of builtins) {
+      if (!item || !item.seedId || !Array.isArray(item.entries) || !item.entries.length) continue;
+      if (this.hasSeed(item.seedId)) continue;
+      this.seedBuiltin(item.entries, { name: item.name, seedId: item.seedId });
+      added.push(item.name);
+    }
+    if (version !== this.db.seedVersion) {
+      this.db.seedVersion = version;
+      this.change('meta');
+    }
+    return { added, version: this.db.seedVersion };
   }
 
   /** 整体替换（恢复备份用）。旧备份里练过但没排期的词会一起补齐。 */

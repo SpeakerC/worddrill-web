@@ -15,7 +15,7 @@ const SEED = [
 
 function tempStore() {
   const store = new Store();
-  store.seedBuiltin(SEED);
+  store.seedBuiltin(SEED, { name: '测试词库', seedId: 'test' });
   return store;
 }
 
@@ -184,3 +184,4 @@ test('删除词库会一起清掉复习排期', () => {
   store.deleteBook(result.bookId);
   assert.ok(!store.db.review.some((r) => r.wordId === word.id));
 });
+

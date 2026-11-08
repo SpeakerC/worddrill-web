@@ -25,7 +25,7 @@ function connected() {
   const persist = createStorage({ storage });
   const store = new Store({ onChange: (part) => persist.save(part) });
   persist.bind(store.db);
-  store.seedBuiltin(SEED);
+  store.seedBuiltin(SEED, { name: '测试词库', seedId: 'test' });
   return { storage, persist, store };
 }
 
@@ -45,7 +45,7 @@ test('改动防抖写入，flush 之后重新加载能拿到同样的数据', ()
   const reloaded = createStorage({ storage }).load();
   assert.ok(reloaded, '应该能读回数据');
   assert.equal(reloaded.words.length, SEED.length);
-  assert.equal(reloaded.books[0].name, '高中 3500 词');
+  assert.equal(reloaded.books[0].name, '测试词库');
   const target = reloaded.words.find((w) => w.id === word.id);
   assert.equal(target.starred, true);
   assert.equal(target.blocked, true);
@@ -98,3 +98,4 @@ test('不是备份文件时给出明确错误', () => {
   assert.throws(() => parseBackup('not json'), /不是有效的 JSON/);
   assert.throws(() => parseBackup('{"foo":1}'), /不是「单词练习」的备份文件/);
 });
+

@@ -12,7 +12,7 @@ const SEED = [
 
 function tempStore() {
   const store = new Store();
-  store.seedBuiltin(SEED);
+  store.seedBuiltin(SEED, { name: '测试词库', seedId: 'test' });
   return store;
 }
 
@@ -148,3 +148,4 @@ test('读到期的接口没有副作用，连续两次结果一致', () => {
   assert.deepEqual(firstList.map((w) => w.word), secondList.map((w) => w.word));
   assert.equal(store.db.practiceLog.length, 1, '读取接口不应改动练习日志');
 });
+

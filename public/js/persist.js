@@ -64,6 +64,7 @@ export function createStorage(options = {}) {
     const meta = readJSON('meta', {}) || {};
     return normalizeDb({
       version: meta.version || 1,
+      seedVersion: meta.seedVersion,
       nextBookId: meta.nextBookId,
       nextWordId: meta.nextWordId,
       books,
@@ -86,6 +87,7 @@ export function createStorage(options = {}) {
     else if (part === 'meta') {
       storage.setItem(`${PREFIX}meta`, JSON.stringify({
         version: db.version || 1,
+        seedVersion: db.seedVersion || 0,
         nextBookId: db.nextBookId,
         nextWordId: db.nextWordId,
       }));

@@ -9,7 +9,7 @@ import { parseAbout } from './about.js';
 import { createStorage, getLocalStorage, memoryStorage, exportBackup, parseBackup, clearCache } from './persist.js';
 import { autoBackupEnabled, backupIntervalHours, backupKeepCount } from './settings.js';
 
-export const VERSION = 'web-1.3';
+export const VERSION = 'web-1.4';
 export { MODES, isCorrect };
 
 let autoTimer = 0;
@@ -47,6 +47,48 @@ async function loadSeed() {
   return res.json();
 }
 
+/**
+ * 内置词库清单。seedId 一旦发布就不能改——老用户靠它判断「这本已经有了」。
+ * 新加词库时：编号 +1、清单版本 BUILDIN_VERSION +1，再往数组里追加一条。
+ * 已发布过的条目永远留在数组里，缺哪本补哪本。
+ */
+const BUILTIN_VERSION = 2;
+const BUILTIN_BOOKS = [
+  {
+    seedId: 'senior-3500',
+    name: '高中 3500 词',
+    url: SEED_URL,
+  },
+  {
+    seedId: 'senior-ext',
+    name: '高中英语扩展词汇',
+    url: new URL('../assets/words-senior.json', import.meta.url),
+  },
+  {
+    seedId: 'cet4',
+    name: '大学英语四级',
+    url: new URL('../assets/words-cet4.json', import.meta.url),
+  },
+];
+
+/** 逐个取回内置词表；某一本取不到就跳过，不影响其他词库播种。 */
+async function loadBuiltins() {
+  const out = [];
+  for (const book of BUILTIN_BOOKS) {
+    try {
+      const res = await fetch(book.url);
+      if (!res.ok) continue;
+      const entries = await res.json();
+      if (Array.isArray(entries) && entries.length) {
+        out.push({ seedId: book.seedId, name: book.name, entries });
+      }
+    } catch {
+      // 断网或文件缺失：跳过这本，下次加载再补
+    }
+  }
+  return out;
+}
+
 async function loadAbout() {
   const fallback = { name: '单词练习', version: VERSION, developer: '', summary: '', rows: [], note: '' };
   try {
@@ -60,6 +102,7 @@ async function loadAbout() {
 
 /**
  * 首次使用：播种内置词库；之后从 localStorage 恢复。
+ * 老用户数据里 seedVersion 落后时，补种新增的内置词库（不动已有记录）。
  * @param {{onStorageError?: (err: Error) => void}} options
  */
 export async function init(options = {}) {
@@ -76,20 +119,39 @@ export async function init(options = {}) {
   let db = storage.load();
   let seeded = false;
   if (!db) {
-    const entries = await loadSeed();
+    // 全新用户：一次把清单里的词库全部种下
+    const builtins = await loadBuiltins();
     const fresh = new Store();
-    fresh.seedBuiltin(entries.map((e) => ({ w: e.w, pos: e.pos, m: e.m })));
+    fresh.applyBuiltins(builtins, BUILTIN_VERSION);
     db = fresh.db;
     seeded = true;
   }
   store = new Store({ db, onChange: (part) => storage.save(part) });
   storage.bind(store.db);
   if (seeded) storage.save('all');
+
+  // 老用户：清单版本落后就补种缺的词库
+  if (store.db.seedVersion < BUILTIN_VERSION) {
+    const builtins = await loadBuiltins();
+    const { added } = store.applyBuiltins(builtins, BUILTIN_VERSION);
+    if (added.length) storage.save('all');
+  }
+
   // 老数据可能「练过但没有复习排期」，加载时补齐，保证所有练过的词都进复习
   store.ensureReviewRecords();
   about = await loadAbout();
   startAutoBackup();
   return bootstrap();
+}
+
+/** 数据里记的内置词库版本与清单版本，设置页用来显示。 */
+export function builtinInfo() {
+  const s = requireStore();
+  return {
+    seedVersion: s.db.seedVersion,
+    latest: BUILTIN_VERSION,
+    books: s.books().filter((b) => b.builtin),
+  };
 }
 
 export function bootstrap() {
@@ -307,4 +369,5 @@ export function clearAutoBackups() {
 export async function clearOfflineCache() {
   return clearCache();
 }
+
 

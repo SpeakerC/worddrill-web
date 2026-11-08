@@ -1,3 +1,7 @@
 node_modules/
 data/
 *.log
+
+# 词表构建的原始下载文件
+_src/
+

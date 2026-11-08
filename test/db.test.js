@@ -11,7 +11,7 @@ const SEED = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'seed.json')
 
 function tempStore() {
   const store = new Store();
-  store.seedBuiltin(SEED);
+  store.seedBuiltin(SEED, { name: '测试词库', seedId: 'test' });
   return store;
 }
 
@@ -97,3 +97,4 @@ test('删除词库会一起清掉错题与练习记录，内置词库删不掉',
   assert.equal(store.mistakes().length, 0);
   assert.equal(store.books().length, 1);
 });
+
