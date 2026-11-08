@@ -2042,3 +2042,52 @@ button, .mode, .opt, .word-row, .drop { -webkit-tap-highlight-color: transparent
 @media (prefers-reduced-motion: reduce) {
   .mobile-tip { animation: none; }
 }
+
+/* ---------- 手机端首页底部安卓下载按钮 ---------- */
+
+/* 桌面端有侧边导航、也能直接进设置，不重复放 */
+.mobile-app-download { display: none; }
+
+@media (max-width: 760px) {
+  .mobile-app-download {
+    display: block;
+    margin: 18px 0 4px;
+    text-align: center;
+  }
+
+  .mobile-app-download .apk-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    height: 48px;
+    border-radius: 13px;
+    background: #1a7f47;
+    font-size: 15px;
+    font-weight: 700;
+    color: #fff;
+    text-decoration: none;
+    box-shadow: 0 8px 20px rgba(26, 127, 71, 0.24);
+  }
+  .mobile-app-download .apk-btn:hover { background: #166b3c; }
+  .mobile-app-download .apk-btn:active { transform: translateY(1px); }
+  .mobile-app-download .apk-btn svg {
+    width: 19px;
+    height: 19px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .mobile-app-download small {
+    display: block;
+    margin-top: 7px;
+    color: var(--hint);
+    font-size: 11.5px;
+  }
+}
+
+/* 弹窗只留一个按钮时占满整行 */
+.mobile-tip-actions .btn:only-child { flex: 1 1 100%; }

@@ -272,10 +272,9 @@ function maybeShowMobileTip() {
         <img src="./icon.png" alt="">
       </div>
       <h2 id="mobileTipTitle">WordDrill 单词练习</h2>
-      <p>现已支持移动端部署，可在设置中下载</p>
+      <p>现已支持移动端部署</p>
       <div class="mobile-tip-actions">
-        <button class="btn ghost" data-close data-action="dismiss-install">不再提示</button>
-        <button class="btn" data-action="tip-go-settings">去看看</button>
+        <button class="btn" data-close data-action="dismiss-install">了解</button>
       </div>
     </div>`);
   overlay.classList.add('modal-tip');
@@ -293,6 +292,21 @@ function maybeShowMobileTip() {
       location.hash = '#/settings';
     }
   });
+}
+
+/** 手机端首页最下方的安卓 App 下载按钮。APK 地址只在设置页写一次，这里复用。 */
+function mobileAppDownloadHtml() {
+  const apk = androidApkUrl();
+  return `
+    <div class="mobile-app-download">
+      <a class="btn block apk-btn" href="${apk.url}" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3v11m0 0l4-4m-4 4l-4-4M5 20h14"/>
+        </svg>
+        下载安卓 App（${apk.version}）
+      </a>
+      <small>APK 安装包 · 与网页版数据互通</small>
+    </div>`;
 }
 
 /** 太阳 / 月亮 主题开关，和「设置」标题同一行。 */
@@ -455,6 +469,7 @@ async function renderHome() {
         </div>
       </div>
     </div>
+    ${mobileAppDownloadHtml()}
     </div>`;
 
   bindBookPicker();
@@ -1746,9 +1761,9 @@ async function renderSettings() {
             <div class="setting-row" style="padding-top:0">
               <div class="setting-text">
                 <div class="title">Android 版 App</div>
-                <small>下载 APK 安装包（1.4.4）</small>
+                <small>下载 APK 安装包（${androidApkUrl().version}）</small>
               </div>
-              <a class="btn small ghost" href="https://gitee.com/MTeaCase/worddrill/releases/download/v1.4.4/WordDrill-1.4.4.apk" target="_blank" rel="noopener">下载</a>
+              <a class="btn small ghost" href="${androidApkUrl().url}" target="_blank" rel="noopener">下载</a>
             </div>
             <div class="setting-row">
               <div class="setting-text">
@@ -2438,6 +2453,15 @@ async function registerServiceWorker() {
   } catch (err) {
     console.warn('离线缓存注册失败：', err);
   }
+}
+
+/** 安卓 APK 的版本与下载地址，设置页和首页底部的下载按钮共用。 */
+function androidApkUrl() {
+  const version = '1.4.4';
+  return {
+    version,
+    url: `https://gitee.com/MTeaCase/worddrill/releases/download/v${version}/WordDrill-${version}.apk`,
+  };
 }
 
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches
