@@ -117,6 +117,8 @@ async function route() {
   const [name] = hash.split('/');
   // 页面级样式钩子，每次路由先清掉，避免残留
   app.classList.remove('on-report');
+  app.classList.toggle('no-sidenav', name === 'practice' || name === 'result');
+  renderSidenav(name);
   try {
     if (name === 'practice') return renderPractice();
     if (name === 'result') return renderResult();
@@ -142,11 +144,54 @@ function topbar() {
   return `
     <header class="topbar">
       <h1>单词练习</h1>
-      <div class="topbar-actions">
-        <button class="btn text" data-action="report">学习报告</button>
-        <button class="btn text" data-action="settings">设置</button>
-      </div>
     </header>`;
+}
+
+/* ---------- 侧边导航（桌面端） ---------- */
+
+const NAV_ITEMS = [
+  { hash: '#/', label: '单词练习', icon: 'book' },
+  { hash: '#/report', label: '学习报告', icon: 'chart' },
+  { hash: '#/settings', label: '设置', icon: 'gear' },
+];
+
+const NAV_ICONS = {
+  book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5V5.5Z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H19"/>',
+  chart: '<path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="12" width="3" height="5" rx="1"/><rect x="12.5" y="8.5" width="3" height="8.5" rx="1"/><rect x="18" y="5" width="3" height="12" rx="1"/>',
+  gear: '<circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v0a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z"/>',
+};
+
+/** 当前路由属于哪一个导航项：报告、设置各自独立，其余都算单词练习。 */
+function navKeyFor(name) {
+  if (name === 'report') return '#/report';
+  if (name === 'settings' || name === 'privacy') return '#/settings';
+  return '#/';
+}
+
+/** 侧边导航每次渲染一次，只在路由变化时更新高亮。 */
+function renderSidenav(name) {
+  const nav = document.getElementById('sidenav');
+  if (!nav) return;
+  if (!nav.dataset.ready) {
+    nav.innerHTML = `
+      <div class="sidenav-brand">
+        <img class="sidenav-logo" src="./icon.png" alt="">
+        <span>单词练习</span>
+      </div>
+      <div class="sidenav-items">
+        ${NAV_ITEMS.map((item, i) => `
+          <a class="nav-item" href="${item.hash}" data-nav="${item.hash}" style="--i:${i}">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">${NAV_ICONS[item.icon]}</svg>
+            <span class="nav-label">${item.label}</span>
+            <span class="nav-glow"></span>
+          </a>`).join('')}
+      </div>`;
+    nav.dataset.ready = '1';
+  }
+  const active = navKeyFor(name);
+  nav.querySelectorAll('[data-nav]').forEach((el) => {
+    el.classList.toggle('active', el.dataset.nav === active);
+  });
 }
 
 /** iOS Safari 没有安装按钮，只能用一句提示教用户加到主屏幕。 */

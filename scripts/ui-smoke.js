@@ -175,9 +175,16 @@ async function main() {
       await page.waitForSelector('.hero');
     }
 
+    /* ---------- 侧边导航 ---------- */
+    const navItems = await page.$$eval('[data-nav]', (els) => els.map((e) => e.getAttribute('href')));
+    check(navItems.length === 3, `侧边导航应有 3 项，实际 ${JSON.stringify(navItems)}`);
+    check(navItems.includes('#/report') && navItems.includes('#/settings'), '导航应含学习报告与设置');
+    check((await page.$$('.nav-icon')).length === 3, '导航项应有图标');
+
     /* ---------- 学习报告 ---------- */
-    await page.evaluate(() => { location.hash = '#/report'; });
+    await page.click('[data-nav="#/report"]');
     await page.waitForSelector('.stat-grid');
+    check((await page.evaluate(() => location.hash)) === '#/report', '点导航应进入学习报告');
     const report = await page.textContent('.center-col');
     check(report.includes('掌握度'), '报告页应有掌握度');
     check(report.includes('连续打卡'), '报告页应有打卡统计');
@@ -239,7 +246,7 @@ async function main() {
     await page.click('[data-action="about"]');
     await page.waitForSelector('.about-card');
     const about = await page.textContent('.about-card');
-    check(about.includes('版本 web-1.12'), '关于页应显示版本');
+    check(about.includes('版本 web-1.13'), '关于页应显示版本');
     check(about.includes('zlt mteacase'), '关于页应显示开发者');
     check(!about.includes('开放源代码许可'), '开源许可应已移出关于弹窗');
     await page.keyboard.press('Escape');
@@ -305,6 +312,7 @@ main().catch((err) => {
   console.error('✖ 冒烟失败：', err.message);
   process.exit(1);
 });
+
 
 
 
