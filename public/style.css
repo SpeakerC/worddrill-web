@@ -1401,3 +1401,34 @@ button, .mode, .opt, .word-row, .drop { -webkit-tap-highlight-color: transparent
 @media (prefers-reduced-motion: reduce) {
   .nav-item, .nav-icon, .nav-glow, .nav-item::before { animation: none; transition: none; }
 }
+
+/* ---------- 标题字号统一：单词练习 / 学习报告 / 设置 ---------- */
+
+.topbar h1,
+.page-head h2 {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.2px;
+}
+
+/* 三个主页面标题行高度与下边距一致，切换到哪页都不跳动。
+   要压过前面 .settings-page / .report-page 各自的 56px */
+.topbar,
+.page-head,
+.settings-page .page-head,
+.report-page .page-head {
+  height: 68px;
+  margin: 0 0 4px;
+}
+
+/* 桌面端有侧边导航，学习报告与设置不需要返回键 */
+@media (min-width: 901px) {
+  .page-head[data-navpage] .icon-btn[data-action="back"] { display: none; }
+}
+
+/* 标题统一后报告页在 1440x800 超了一点，从正文里收，不动标题 */
+.report-page .report-grid { gap: 8px 18px; }
+.report-page .card.report-card { padding: 9px 18px; }
+.report-page .chart { height: 54px; }
+

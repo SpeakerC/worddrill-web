@@ -205,10 +205,10 @@ function installTipHtml() {
     </div>`;
 }
 
-function pageHead(title, extra = '') {
+function pageHead(title, extra = '', backHash = '#/', navPage = false) {
   return `
-    <div class="page-head">
-      <button class="icon-btn" data-action="home" title="返回首页">←</button>
+    <div class="page-head"${navPage ? ' data-navpage' : ''}>
+      <button class="icon-btn" data-action="back" data-back="${backHash}" title="返回">←</button>
       <h2>${esc(title)}</h2>
       <div class="grow"></div>
       ${extra}
@@ -1163,7 +1163,7 @@ async function renderImport() {
 |---|---|---|
 | competence | n. | 能力；胜任 |
 | abandon | v. | 抛弃，舍弃 |</pre>
-        <div class="import-tip-note">三列即可；没有词性就留空成两列。序号列可留可不留。</div>
+        <div class="import-tip-note">三列即可；没有词性就在词性处留空。序号列可留可不留。</div>
       </div>
       <div class="card">
         <label class="hint" for="nameInput">词库名称</label>
@@ -1341,7 +1341,7 @@ async function renderReport() {
 
   app.innerHTML = `
     <div class="center-col wide report-page">
-      ${pageHead('学习报告', '<button class="btn small ghost" data-action="set-goal">调整目标</button>')}
+      ${pageHead('学习报告', '<button class="btn small ghost" data-action="set-goal">调整目标</button>', '#/', true)}
 
       <div class="report-grid">
         <section class="report-tile span-2">
@@ -1463,7 +1463,7 @@ async function renderSettings() {
   const pref = themePref();
   app.innerHTML = `
     <div class="center-col wide settings-page">
-      ${pageHead('设置')}
+      ${pageHead('设置', '', '#/', true)}
 
       <div class="settings-grid">
         <section class="settings-tile">
@@ -1682,7 +1682,7 @@ async function renderPrivacy() {
   }
   app.innerHTML = `
     <div class="center-col">
-      ${pageHead('隐私政策')}
+      ${pageHead('隐私政策', '', '#/settings')}
       <div class="card">
         <div class="prose">${text ? esc(text) : '隐私政策加载失败，请联网刷新后再试。'}</div>
       </div>
@@ -1945,6 +1945,9 @@ app.addEventListener('click', async (event) => {
   switch (action) {
     case 'home':
       location.hash = '#/';
+      break;
+    case 'back':
+      location.hash = target.dataset.back || '#/';
       break;
     case 'about':
       showAbout();
@@ -2302,6 +2305,7 @@ boot().catch((err) => {
     <h2>启动失败</h2><p>${esc(err.message)}</p>
     <p class="hint">确认浏览器允许本地存储后刷新重试。</p></div>`;
 });
+
 
 
 
