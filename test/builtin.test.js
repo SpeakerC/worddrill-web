@@ -108,3 +108,70 @@ test('新增词库在复习与统计里正常参与，但不影响老词库进�
   assert.equal(list[0].word, 'omega');
   assert.equal(list[0].bookId, cBook.id);
 });
+
+test('下架词库会连同单词、错题、练习记录、复习排期一起删掉', () => {
+  const store = new Store();
+  store.applyBuiltins(V2, 2);
+
+  const bBook = store.books().find((b) => b.name === '词库 B');
+  const gamma = store.words(bBook.id)[0];
+  store.recordAnswer(gamma.id, 'en_zh', false);
+  store.setStar(gamma.id, true);
+  assert.equal(store.db.mistakes.length, 1);
+  assert.equal(store.db.review.length, 1);
+
+  const removed = store.removeBuiltins(['b']);
+  assert.deepEqual(removed, ['词库 B']);
+  assert.deepEqual(store.books().map((b) => b.name), ['词库 A']);
+  assert.equal(store.db.words.length, A.length, '只留词库 A 的词');
+  assert.equal(store.db.mistakes.length, 0, '错题一起清掉');
+  assert.equal(store.db.practiceLog.length, 0, '练习记录一起清掉');
+  assert.equal(store.db.review.length, 0, '复习排期一起清掉');
+});
+
+test('下架不会误删用户自建的同名词库', () => {
+  const store = new Store();
+  store.applyBuiltins(V2, 2);
+  store.importEntries(null, '词库 B', C); // 用户自建，恰好同名，没有 seedId
+
+  const removed = store.removeBuiltins(['b']);
+  assert.deepEqual(removed, ['词库 B']);
+  const left = store.books().map((b) => `${b.name}:${b.builtin}`);
+  assert.deepEqual(left.sort(), ['词库 A:true', '词库 B:false'], '用户那本还在');
+});
+
+test('syncBuiltins：补新增、删下架，其余词库原样不动', () => {
+  const store = new Store();
+  store.applyBuiltins(V2, 2);            // A、B
+  const aBook = store.books().find((b) => b.name === '词库 A');
+  const alpha = store.words(aBook.id)[0];
+  store.recordAnswer(alpha.id, 'en_zh', true);
+  const beforeWords = store.db.words.length;
+
+  // 新版清单：保留 A，B 下架，新增 C
+  const next = [V1[0], { seedId: 'c', name: '词库 C', entries: C }];
+  const result = store.syncBuiltins(next, 3, ['b']);
+
+  assert.deepEqual(result.added, ['词库 C']);
+  assert.deepEqual(result.removed, ['词库 B']);
+  assert.equal(result.version, 3);
+  assert.deepEqual(store.books().map((b) => b.name).sort(), ['词库 A', '词库 C']);
+  assert.equal(store.db.words.length, beforeWords - B.length + C.length);
+  // A 的练习记录不受影响
+  assert.equal(store.db.words.find((w) => w.id === alpha.id) !== undefined, true);
+  assert.equal(store.stats(aBook.id).practiced, 1);
+  assert.equal(store.db.practiceLog.length, 1);
+});
+
+test('再次 sync 同一份清单不会重复建库，也不会重建已删掉的词库', () => {
+  const store = new Store();
+  const next = [V1[0], { seedId: 'c', name: '词库 C', entries: C }];
+  store.syncBuiltins(next, 3, ['b']);
+  const count = store.books().length;
+
+  const again = store.syncBuiltins(next, 3, ['b']);
+  assert.deepEqual(again.added, []);
+  assert.deepEqual(again.removed, []);
+  assert.equal(store.books().length, count, '不该重复建库');
+  assert.equal(store.hasSeed('b'), false, '下架的 B 不该被重新种回来');
+});

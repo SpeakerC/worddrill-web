@@ -2,10 +2,10 @@
  * 把 KyleBing/english-vocabulary 的词表转成本项目用的 {w,pos,m} 结构。
  *
  *   源：https://github.com/KyleBing/english-vocabulary （BSD-3-Clause）
- *   输入：json/2-高中-顺序.json、json/3-CET4-顺序.json
- *   输出：public/assets/words-senior.json、public/assets/words-cet4.json
+ *   输入：json/3-CET4-顺序.json（高中扩展词表已下架，不再构建）
+ *   输出：public/assets/words-cet4.json
  *
- * 用法：node scripts/build-builtin-words.mjs
+ * 用法：先把原始 JSON 放到 _src/，再 node scripts/build-builtin-words.mjs
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -75,11 +75,4 @@ function build(file, target, label) {
   return out;
 }
 
-const senior = build('senior.json', 'words-senior.json', '高中扩展');
 const cet4 = build('cet4.json', 'words-cet4.json', '大学英语四级');
-
-// 两份词表的重合情况，便于判断要不要去重
-const seniorSet = new Set(senior.map((w) => w.w.toLowerCase()));
-const overlap = cet4.filter((w) => seniorSet.has(w.w.toLowerCase())).length;
-// eslint-disable-next-line no-console
-console.log(`两份词表重合 ${overlap} 词，CET4 独有 ${cet4.length - overlap} 词`);

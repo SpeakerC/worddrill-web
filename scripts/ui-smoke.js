@@ -204,7 +204,7 @@ async function main() {
     await page.click('[data-action="about"]');
     await page.waitForSelector('.about-card');
     const about = await page.textContent('.about-card');
-    check(about.includes('版本 web-1.4'), '关于页应显示版本');
+    check(about.includes('版本 web-1.5'), '关于页应显示版本');
     check(about.includes('zlt mteacase'), '关于页应显示开发者');
     await page.keyboard.press('Escape');
 
@@ -221,14 +221,15 @@ async function main() {
         custom: books.filter((x) => !x.builtin).map((x) => x.name),
       };
     });
-    check(bookInfo.builtin.length === 3, `应有 3 本内置词库，实际 ${JSON.stringify(bookInfo.builtin)}`);
-    check(bookInfo.builtin.includes('高中英语扩展词汇'), '内置词库应含「高中英语扩展词汇」');
+    check(bookInfo.builtin.length === 2, `应有 2 本内置词库，实际 ${JSON.stringify(bookInfo.builtin)}`);
+    check(bookInfo.builtin.includes('高中 3500 词'), '内置词库应含「高中 3500 词」');
     check(bookInfo.builtin.includes('大学英语四级'), '内置词库应含「大学英语四级」');
+    check(!bookInfo.builtin.includes('高中英语扩展词汇'), '「高中英语扩展词汇」应已下架');
     check(bookInfo.custom.includes('冒烟测试词库'), `刷新后应保留自建词库，实际 ${JSON.stringify(bookInfo.custom)}`);
 
     // 内置词库版本记在数据里，刷新后不应重复补种
     const seedVersion = await page.evaluate(() => window.worddrill.repo.builtinInfo().seedVersion);
-    check(seedVersion >= 2, `seedVersion 应 >= 2，实际 ${seedVersion}`);
+    check(seedVersion >= 3, `seedVersion 应 >= 3，实际 ${seedVersion}`);
 
     /* ---------- 备份 ---------- */
     const backup = await page.evaluate(() => window.worddrill.repo.backupText());
@@ -262,6 +263,7 @@ main().catch((err) => {
   console.error('✖ 冒烟失败：', err.message);
   process.exit(1);
 });
+
 
 
 

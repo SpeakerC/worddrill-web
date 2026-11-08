@@ -9,7 +9,7 @@ import { parseAbout } from './about.js';
 import { createStorage, getLocalStorage, memoryStorage, exportBackup, parseBackup, clearCache } from './persist.js';
 import { autoBackupEnabled, backupIntervalHours, backupKeepCount } from './settings.js';
 
-export const VERSION = 'web-1.4';
+export const VERSION = 'web-1.5';
 export { MODES, isCorrect };
 
 let autoTimer = 0;
@@ -49,20 +49,23 @@ async function loadSeed() {
 
 /**
  * 内置词库清单。seedId 一旦发布就不能改——老用户靠它判断「这本已经有了」。
- * 新加词库时：编号 +1、清单版本 BUILDIN_VERSION +1，再往数组里追加一条。
- * 已发布过的条目永远留在数组里，缺哪本补哪本。
+ *
+ * 更新规则：
+ *   - 加词库：往数组末尾追加一条，BUILTIN_VERSION +1；
+ *   - 删词库：从数组里删掉即可，同时把 seedId 记进 RETIRED_SEEDS，
+ *     这样已经种过的老用户不会因为「清单里没有」而反复处理它。
+ * 补种只会新增清单里尚未存在的词库，永远不会重建用户已有的或已删掉的词库。
  */
-const BUILTIN_VERSION = 2;
+const BUILTIN_VERSION = 3;
+
+/** 下架过的内置词库：不再出现在清单里，也不再补种。 */
+const RETIRED_SEEDS = ['senior-ext'];
+
 const BUILTIN_BOOKS = [
   {
     seedId: 'senior-3500',
     name: '高中 3500 词',
     url: SEED_URL,
-  },
-  {
-    seedId: 'senior-ext',
-    name: '高中英语扩展词汇',
-    url: new URL('../assets/words-senior.json', import.meta.url),
   },
   {
     seedId: 'cet4',
@@ -130,11 +133,11 @@ export async function init(options = {}) {
   storage.bind(store.db);
   if (seeded) storage.save('all');
 
-  // 老用户：清单版本落后就补种缺的词库
+  // 老用户：清单版本落后时同步一次——补种新增的词库、删掉已下架的，已有词库不动
   if (store.db.seedVersion < BUILTIN_VERSION) {
     const builtins = await loadBuiltins();
-    const { added } = store.applyBuiltins(builtins, BUILTIN_VERSION);
-    if (added.length) storage.save('all');
+    const { added, removed } = store.syncBuiltins(builtins, BUILTIN_VERSION, RETIRED_SEEDS);
+    if (added.length || removed.length) storage.save('all');
   }
 
   // 老数据可能「练过但没有复习排期」，加载时补齐，保证所有练过的词都进复习
@@ -369,5 +372,6 @@ export function clearAutoBackups() {
 export async function clearOfflineCache() {
   return clearCache();
 }
+
 
 

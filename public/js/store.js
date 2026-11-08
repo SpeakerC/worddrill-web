@@ -93,6 +93,44 @@ export class Store {
     return book;
   }
 
+  /**
+   * 下架内置词库：按 seedId 删掉这些内置词库及其单词、练习记录、错题、复习排期。
+   * 只动 builtin 词库，用户自己导入的（没有 seedId）一律不碰。
+   * @param {string[]} seedIds
+   * @returns {string[]} 实际删掉的词库名
+   */
+  removeBuiltins(seedIds) {
+    const targets = new Set(Array.isArray(seedIds) ? seedIds : []);
+    if (!targets.size) return [];
+    const removedBooks = this.db.books.filter((b) => b.builtin && targets.has(b.seedId));
+    if (!removedBooks.length) return [];
+    const bookIds = new Set(removedBooks.map((b) => b.id));
+    const wordIds = new Set(
+      this.db.words.filter((w) => bookIds.has(w.bookId)).map((w) => w.id),
+    );
+    this.db.books = this.db.books.filter((b) => !bookIds.has(b.id));
+    this.db.words = this.db.words.filter((w) => !wordIds.has(w.id));
+    this.db.mistakes = this.db.mistakes.filter((m) => !wordIds.has(m.wordId));
+    this.db.practiceLog = this.db.practiceLog.filter((p) => !wordIds.has(p.wordId));
+    this.db.review = this.db.review.filter((r) => !wordIds.has(r.wordId));
+    this.change('all');
+    return removedBooks.map((b) => b.name);
+  }
+
+  /**
+   * 同步内置词库：补种清单里缺失的，删掉已下架的。
+   * 已有且仍在清单里的词库完全不动，所以不会重建用户删掉的内容、也不会重复写入。
+   * @param {Array<{seedId:string,name:string,entries:Array}>} builtins 当前清单
+   * @param {number} version 清单版本，写进 db.seedVersion
+   * @param {string[]} retired 已下架的 seedId
+   * @returns {{added:string[], removed:string[], version:number}}
+   */
+  syncBuiltins(builtins, version, retired = []) {
+    const removed = this.removeBuiltins(retired);
+    const { added } = this.applyBuiltins(builtins, version);
+    return { added, removed, version: this.db.seedVersion };
+  }
+
   /** 已有某本内置词库？按 seedId 判断，用户自己导入的同名词库不算。 */
   hasSeed(seedId) {
     return this.db.books.some((b) => b.builtin && b.seedId === seedId);
