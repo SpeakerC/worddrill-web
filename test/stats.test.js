@@ -86,28 +86,71 @@ test('掌握度按复习等级分三档', () => {
   assert.equal(stats.masteredPercent, 25);
 });
 
-test('到期复习只返回没屏蔽的词，等级低的优先', () => {
+test('复习列表只返回没屏蔽的词，到期的排前面', () => {
   const store = tempStore();
   const words = store.words(1);
   store.recordAnswer(words[0].id, 'en_zh', true);
   store.recordAnswer(words[1].id, 'en_zh', true);
   store.recordAnswer(words[1].id, 'en_zh', true);
 
-  // 都还没到期
-  assert.equal(store.dueReviewCount(), 0);
+  // 都还没到期：不进今日复习，但都在「练过的词」里
+  assert.equal(store.reviewWordCount('due'), 0);
+  assert.equal(store.reviewWordCount('all'), 2);
 
   const past = Date.now() - 1000;
   store.db.review.forEach((r) => { r.dueAt = past; });
   store.setBlocked(words[1].id, true);
 
-  const due = store.dueReviewWords(200);
+  const due = store.reviewWords(200, 'due');
   assert.equal(due.length, 1);
   assert.equal(due[0].word, 'alpha');
 
   store.setBlocked(words[1].id, false);
-  const both = store.dueReviewWords(200);
+  const both = store.reviewWords(200, 'due');
   assert.equal(both.length, 2);
   assert.equal(both[0].word, 'alpha', '1 级应排在 2 级前面');
+});
+
+test('练过但没答错的词也进复习，还没练过的不进', () => {
+  const store = tempStore();
+  const words = store.words(1);
+  // alpha 只答对：旧逻辑里不进错题就不再出现，现在应该进复习
+  store.recordAnswer(words[0].id, 'en_zh', true);
+  assert.equal(store.mistakes(1).length, 0, '答对不进错题本');
+  assert.equal(store.reviewWordCount('all'), 1, '练过的词必须进复习');
+
+  // 把排期推到到期后再看
+  store.db.review[0].dueAt = Date.now() - 1000;
+  const due = store.reviewWords(200, 'due');
+  assert.equal(due.length, 1);
+  assert.equal(due[0].word, 'alpha');
+
+  // 完全没练过的词不进
+  assert.ok(!due.some((w) => w.word === 'beta'));
+});
+
+test('复习统计区分「练过的总量」和「今天该复习的量」', () => {
+  const store = tempStore();
+  const words = store.words(1);
+  store.recordAnswer(words[3].id, 'zh_en', true);
+
+  // 答对 → 1 级、明天再来：今天不该复习，但已经在复习范围内
+  const stats = store.reviewStats();
+  assert.equal(stats.total, 1, '练过的词都算进来');
+  assert.equal(stats.due, 0, '刚答对，明天才到期');
+  assert.equal(stats.fresh, 0);
+  assert.equal(stats.answeredToday, 1);
+
+  // 老数据：练过却没有复习排期 → 立即算今日待复习，且等级 0
+  store.db.review = [];
+  const legacy = store.reviewStats();
+  assert.equal(legacy.total, 1);
+  assert.equal(legacy.due, 1);
+  assert.equal(legacy.fresh, 1);
+  const due = store.reviewWords(200, 'due');
+  assert.equal(due.length, 1);
+  assert.equal(due[0].word, 'delta');
+  assert.equal(due[0].level, 0);
 });
 
 test('学习报告汇总今日题量、累计与最该复习的词', () => {

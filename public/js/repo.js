@@ -9,7 +9,7 @@ import { parseAbout } from './about.js';
 import { createStorage, getLocalStorage, memoryStorage, exportBackup, parseBackup, clearCache } from './persist.js';
 import { autoBackupEnabled, backupIntervalHours, backupKeepCount } from './settings.js';
 
-export const VERSION = 'web-1.2';
+export const VERSION = 'web-1.3';
 export { MODES, isCorrect };
 
 let autoTimer = 0;
@@ -85,6 +85,8 @@ export async function init(options = {}) {
   store = new Store({ db, onChange: (part) => storage.save(part) });
   storage.bind(store.db);
   if (seeded) storage.save('all');
+  // 老数据可能「练过但没有复习排期」，加载时补齐，保证所有练过的词都进复习
+  store.ensureReviewRecords();
   about = await loadAbout();
   startAutoBackup();
   return bootstrap();
@@ -150,10 +152,19 @@ export function startPractice(body = {}) {
   };
 }
 
-/** 今日到期的复习单词。 */
-export function dueReview(limit = 200) {
+/**
+ * 复习列表：练过的词都进来，不只是错题。
+ * scope = 'due'（今天该复习，默认）或 'all'（全部练过的词）。
+ */
+export function dueReview(limit = 200, scope = 'due') {
   const s = requireStore();
-  return { count: s.dueReviewCount(), words: s.dueReviewWords(limit) };
+  s.ensureReviewRecords();
+  return {
+    count: s.reviewWordCount(scope),
+    words: s.reviewWords(limit, scope),
+    stats: s.reviewStats(),
+    scope,
+  };
 }
 
 /** 学习报告：近 days 天统计 + 掌握度 + 最该复习的词。 */
@@ -188,8 +199,14 @@ export function clearMistakes(bookId) {
 }
 
 export function clearLog() {
-  requireStore().clearPracticeLog();
+  const s = requireStore();
+  s.clearPracticeLog();
   return { ok: true };
+}
+
+/** 全部练过的单词（复习页用）。 */
+export function reviewTotal() {
+  return requireStore().reviewWordCount('all');
 }
 
 export function deleteBook(bookId) {
@@ -290,3 +307,4 @@ export function clearAutoBackups() {
 export async function clearOfflineCache() {
   return clearCache();
 }
+

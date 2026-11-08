@@ -188,8 +188,10 @@ async function renderHome() {
   }
   const stats = repo.stats(book.id);
   state.stats = stats;
-  let due = 0;
-  try { due = repo.dueReview().count; } catch { due = 0; }
+  let reviewStats = { due: 0, total: 0, overdue: 0, fresh: 0, answeredToday: 0 };
+  try { reviewStats = repo.dueReview(0, 'due').stats; } catch { /* 没数据就当 0 */ }
+  const due = reviewStats.due;
+  const reviewTotal = reviewStats.total;
   const max = stats.range ? stats.range.end : 0;
   if (state.start == null || state.start > Math.max(max, 1)) state.start = max ? 1 : null;
   if (state.end == null || state.end > max) state.end = max || null;
@@ -261,9 +263,16 @@ async function renderHome() {
 
         <button class="btn block" data-action="start" ${max ? '' : 'disabled'}>开始练习</button>
 
-        <button class="btn ghost block review-btn" data-action="review" ${due ? '' : 'disabled'}>
-          ${due ? `复习今日到期的 ${due} 个单词` : '今天没有待复习的单词'}
+        <button class="btn ghost block review-btn" data-action="review" ${reviewTotal ? '' : 'disabled'}>
+          ${reviewTotal
+    ? (due ? `复习 ${due} 个单词` : `复习全部练过的 ${reviewTotal} 个单词`)
+    : '练过之后就能复习'}
         </button>
+        ${reviewTotal
+    ? `<div class="hint" style="text-align:center;margin-top:-6px">
+            ${due ? `今天到期 ${due} 个` : '今天的都复习过了'} · 练过的 ${reviewTotal} 个都能复习
+          </div>`
+    : ''}
 
         <div class="footer-actions">
           <button class="btn ghost" data-action="list-starred">星标词汇</button>
@@ -1068,6 +1077,11 @@ async function renderReport() {
       </div>`;
   }).join('');
 
+  const review = repo.dueReview(0, 'due');
+  const due = review.stats.due;
+  const reviewTotal = review.stats.total;
+  const hasReview = reviewTotal > 0;
+
   app.innerHTML = `
     <div class="center-col">
       ${pageHead('学习报告')}
@@ -1087,7 +1101,7 @@ async function renderReport() {
       <div class="card">
         <div class="chart">${chart}</div>
         <div class="hint" style="margin-top:12px">
-          累计正确率 ${accuracy}% · 答对 ${summary.totalCorrect} / ${summary.totalAnswered} 题 · 待复习 ${summary.dueReview} 词
+          累计正确率 ${accuracy}% · 答对 ${summary.totalCorrect} / ${summary.totalAnswered} 题 · 练过 ${reviewTotal} 词，今天待复习 ${due} 词
         </div>
       </div>
 
@@ -1111,8 +1125,10 @@ async function renderReport() {
 
       <div class="footer-actions" style="margin-top:18px">
         <button class="btn ghost" data-action="set-goal">设置每日目标</button>
-        <button class="btn" data-action="review" ${summary.dueReview ? '' : 'disabled'}>
-          ${summary.dueReview ? `复习 ${summary.dueReview} 个到期词` : '今天没有待复习'}
+        <button class="btn" data-action="review" ${hasReview ? '' : 'disabled'}>
+          ${hasReview
+    ? (due ? `复习 ${due} 个到期词` : `复习练过的 ${reviewTotal} 个词`)
+    : '练过之后就能复习'}
         </button>
       </div>
 
@@ -1290,21 +1306,46 @@ async function renderPrivacy() {
     </div>`;
 }
 
-/* ---------- 今日复习 ---------- */
+/* ---------- 复习（所有练过的词，不只是错题） ---------- */
 
-async function startReview() {
+/**
+ * 复习入口。默认复习「今天该复习的」，也可以切到「全部练过的词」。
+ * 只要练过一次（答对答错都算）就会排进来：答对越久越靠后，答错回到最前面。
+ */
+async function startReview(forcedScope = '') {
   let data;
   try {
-    data = repo.dueReview();
+    data = repo.dueReview(200, forcedScope || 'due');
   } catch (err) {
     toast(err.message);
     return;
   }
-  if (!data.words.length) {
-    toast('今天没有待复习的单词');
+  if (!data.stats.total) {
+    toast('还没有练过的单词，先做一轮练习吧');
     if (location.hash.includes('report')) renderReport();
     return;
   }
+
+  let scope = data.scope;
+  // 只有「今天该复习的」不为空时才让用户选范围；否则直接复习全部练过的词
+  if (!forcedScope && data.count > 0 && data.stats.total > data.count) {
+    const picked = await chooseReviewScope(data.stats);
+    if (!picked) return;
+    scope = picked;
+    if (scope !== data.scope) {
+      try { data = repo.dueReview(200, scope); } catch (err) { toast(err.message); return; }
+    }
+  } else if (!forcedScope && data.count === 0 && data.stats.total > 0) {
+    scope = 'all';
+    try { data = repo.dueReview(200, scope); } catch (err) { toast(err.message); return; }
+  }
+
+  if (!data.words.length) {
+    toast('今天该复习的已经复习完了，明天再来');
+    if (location.hash.includes('report')) renderReport();
+    return;
+  }
+
   const choice = await chooseMode(`复习 ${data.words.length} 个单词`);
   if (!choice) return;
   state.mode = choice;
@@ -1313,8 +1354,42 @@ async function startReview() {
     { count: data.words.length, start: 1, end: Number.MAX_SAFE_INTEGER, allowRepeat: true },
     data.words.map((word) => word.id),
     'review',
-    '复习',
+    scope === 'all' ? '复习' : '今日复习',
   );
+}
+
+/** 选复习范围：今天该复习的 / 全部练过的词。 */
+function chooseReviewScope(stats) {
+  return new Promise((resolve) => {
+    const overlay = openModal(`
+      <div class="about-card" style="text-align:left">
+        <h3 style="margin-top:0">复习哪些单词</h3>
+        <div class="mode-list">
+          <button class="mode" data-scope="due">
+            <span>
+              <b>今天该复习的 ${stats.due} 个</b>
+              <small>到期该过一遍的词${stats.overdue ? `，含 ${stats.overdue} 个之前答错的` : ''}${stats.fresh ? `；${stats.fresh} 个刚练过还没排上` : ''}</small>
+            </span>
+          </button>
+          <button class="mode" data-scope="all">
+            <span>
+              <b>全部练过的 ${stats.total} 个</b>
+              <small>把练过的词从头再过一遍，最久没练的排在前面</small>
+            </span>
+          </button>
+        </div>
+      </div>`);
+    overlay.querySelectorAll('[data-scope]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const value = button.dataset.scope;
+        overlay.remove();
+        resolve(value);
+      });
+    });
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) { overlay.remove(); resolve(''); }
+    });
+  });
 }
 
 /* ---------- 通用对话框：选题 */
@@ -1592,11 +1667,12 @@ app.addEventListener('click', async (event) => {
       break;
     }
     case 'clear-log': {
-      const ok = await confirmDialog('清空练习记录？', '清空后所有单词都会重新被视为「没练过」，星标和错题不受影响。', '清空');
+      const ok = await confirmDialog('清空练习记录？', '清空后所有单词都会重新被视为「没练过」，复习排期一并清空；星标和错题不受影响。', '清空');
       if (!ok) return;
       try {
         repo.clearLog();
-        await renderHome();
+        if (location.hash.includes('settings')) await renderSettings();
+        else await renderHome();
         toast('已清空练习记录');
       } catch (err) { toast(err.message); }
       break;

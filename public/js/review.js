@@ -3,6 +3,8 @@
  * 规则与 Android 版 ReviewScheduler / StreakCalc 一致：
  *   答对：等级 + 1，按 1 → 2 → 4 → 7 → 15 → 30 → 60 天安排下次复习；
  *   答错：等级归零，第二天再来，并累加遗忘次数。
+ * 所有练过的单词都会进入复习排期（见 store.js 的 recordAnswer / ensureReviewRecords），
+ * 不只是错题：新练的词等级为 0，当天随时可以在「复习」里再过一遍。
  */
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
@@ -27,6 +29,10 @@ export function intervalDays(level, correct) {
 export function nextDueAt(level, correct, now = Date.now()) {
   return now + intervalDays(nextLevel(level, correct), correct) * DAY_MS;
 }
+
+/**
+ * 复习曲线见上。这里只放纯函数；排期读写、复习列表在 store.js。
+ */
 
 /** 本地时区的日期键：2026-11-03。 */
 export function dayKey(date = new Date()) {

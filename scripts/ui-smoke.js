@@ -97,7 +97,7 @@ async function main() {
     await page.waitForSelector('.feedback');
     check((await bodyText()).includes('我不会'), '「我不会」应记为答错');
 
-    /* ---------- 今日复习 ---------- */
+    /* ---------- 复习（所有练过的词都能进复习） ---------- */
     await page.waitForTimeout(400); // 等防抖写入落盘
     const reviewCount = await page.evaluate(() => {
       const key = 'worddrill.db.review';
@@ -111,14 +111,49 @@ async function main() {
     await page.reload({ waitUntil: 'networkidle' });
     await page.waitForSelector('.hero');
     const reviewEntry = await page.textContent('[data-action="review"]');
-    check(reviewEntry.includes('复习今日到期的'), `首页应显示今日复习入口，实际：${reviewEntry}`);
+    check(/复习 \d+ 个单词/.test(reviewEntry), `首页应显示复习入口，实际：${reviewEntry}`);
+    const homeHint = await page.textContent('.home-grid');
+    check(homeHint.includes('都能复习'), '首页应说明练过的词都能复习');
+
+    // 只答对、从没答错的词也要能复习
+    const answered = await page.evaluate(() => {
+      const log = JSON.parse(localStorage.getItem('worddrill.db.log') || '[]');
+      const mistakes = JSON.parse(localStorage.getItem('worddrill.db.mistakes') || '[]');
+      const wrongIds = new Set(mistakes.map((m) => m.wordId));
+      return { practiced: log.length, onlyCorrect: log.filter((p) => !wrongIds.has(p.wordId)).length };
+    });
+    check(answered.practiced > 0, '应有练习记录');
+    check(answered.onlyCorrect >= 0, '答对的词数应为非负');
+
     await page.click('[data-action="review"]');
     await page.waitForSelector('.modal [data-mode="en_zh"]');
     await page.click('.modal [data-mode="en_zh"]');
     await page.waitForSelector('.practice-top');
-    check((await bodyText()).includes('· 复习'), '应进入复习练习');
+    check((await bodyText()).includes('复习'), '应进入复习练习');
     await page.click('[data-action="exit"]');
     await page.waitForSelector('.hero');
+
+    // 范围选择：练过的词多于今天到期时才出现
+    const scopeStats = await page.evaluate(() => {
+      const log = JSON.parse(localStorage.getItem('worddrill.db.log') || '[]');
+      const rev = JSON.parse(localStorage.getItem('worddrill.db.review') || '[]');
+      const dueIds = new Set(rev.filter((r) => r.dueAt <= Date.now()).map((r) => r.wordId));
+      const practiced = new Set(log.map((p) => p.wordId));
+      return { practiced: practiced.size, due: [...practiced].filter((id) => dueIds.has(id)).length };
+    });
+    if (scopeStats.practiced > scopeStats.due) {
+      await page.click('[data-action="review"]');
+      await page.waitForSelector('.modal [data-scope="due"]');
+      check((await bodyText()).includes('今天该复习的'), '应能选今日复习范围');
+      check((await bodyText()).includes('全部练过的'), '应能选全部练过的词');
+      await page.click('.modal [data-scope="all"]');
+      await page.waitForSelector('.modal [data-mode="en_zh"]');
+      await page.click('.modal [data-mode="en_zh"]');
+      await page.waitForSelector('.practice-top');
+      check((await bodyText()).includes('· 复习'), '选「全部练过的」也应进入复习');
+      await page.click('[data-action="exit"]');
+      await page.waitForSelector('.hero');
+    }
 
     /* ---------- 学习报告 ---------- */
     await page.evaluate(() => { location.hash = '#/report'; });
@@ -169,7 +204,7 @@ async function main() {
     await page.click('[data-action="about"]');
     await page.waitForSelector('.about-card');
     const about = await page.textContent('.about-card');
-    check(about.includes('版本 web-1.2'), '关于页应显示版本');
+    check(about.includes('版本 web-1.3'), '关于页应显示版本');
     check(about.includes('zlt mteacase'), '关于页应显示开发者');
     await page.keyboard.press('Escape');
 
@@ -213,3 +248,6 @@ main().catch((err) => {
   console.error('✖ 冒烟失败：', err.message);
   process.exit(1);
 });
+
+
+

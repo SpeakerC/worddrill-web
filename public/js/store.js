@@ -80,9 +80,10 @@ export class Store {
     return book;
   }
 
-  /** 整体替换（恢复备份用）。 */
+  /** 整体替换（恢复备份用）。旧备份里练过但没排期的词会一起补齐。 */
   replaceDb(raw) {
     this.db = normalizeDb(raw);
+    this.ensureReviewRecords();
     this.change('all');
     return this;
   }
@@ -334,26 +335,88 @@ export class Store {
 
   // ---------- 复习 / 统计 ----------
 
-  /** 今天到期、且没被屏蔽的单词：等级低的先来，同级按到期时间。 */
-  dueReviewWords(limit = 200, now = Date.now()) {
-    const byId = new Map(this.db.words.map((w) => [w.id, w]));
-    const indexCache = new Map();
-    const due = [];
-    for (const record of this.db.review) {
-      if (record.dueAt > now) continue;
-      const word = byId.get(record.wordId);
-      if (!word || word.blocked) continue;
-      due.push({ word, level: record.level || 0, dueAt: record.dueAt });
+  /**
+   * 练过（见过面）的单词：有练习记录、或已有复习排期的都算。
+   * 只认练习记录，不看对错——答对过一次也算练过。
+   */
+  studiedIds() {
+    const ids = new Set();
+    for (const p of this.db.practiceLog) ids.add(p.wordId);
+    for (const r of this.db.review) ids.add(r.wordId);
+    return ids;
+  }
+
+  /**
+   * 老数据里可能有「练过但没有复习排期」的词，这里补齐 level 0 / dueAt 0 的记录，
+   * 从此所有练过的词都进复习。返回新补的条数。
+   */
+  ensureReviewRecords() {
+    const known = new Set(this.db.review.map((r) => r.wordId));
+    const lastAt = new Map(this.db.practiceLog.map((p) => [p.wordId, p.lastAt || 0]));
+    let created = 0;
+    for (const wordId of this.studiedIds()) {
+      if (known.has(wordId)) continue;
+      this.db.review.push({ wordId, level: 0, dueAt: 0, lastAt: lastAt.get(wordId) || 0, lapses: 0 });
+      known.add(wordId);
+      created += 1;
     }
-    due.sort((a, b) => a.level - b.level || a.dueAt - b.dueAt);
-    return due.slice(0, Math.max(0, limit)).map(({ word, level }) => {
+    if (created) this.change('review');
+    return created;
+  }
+
+  /**
+   * 所有练过的、没被屏蔽的单词都排进复习列表（不只是错题）。
+   * 只读：没有复习排期的词按 level 0 / dueAt 0 现场补上，不写库。
+   * @param {'due'|'all'} scope due 只取今天该复习的，all 取全部练过的词
+   */
+  reviewWords(limit = 200, scope = 'due', now = Date.now()) {
+    const byId = new Map(this.db.words.map((w) => [w.id, w]));
+    const records = new Map(this.db.review.map((r) => [r.wordId, r]));
+    const indexCache = new Map();
+    const list = [];
+    for (const wordId of this.studiedIds()) {
+      const word = byId.get(wordId);
+      if (!word || word.blocked) continue;
+      const record = records.get(wordId);
+      const level = record ? (record.level || 0) : 0;
+      const dueAt = record ? (record.dueAt || 0) : 0;
+      if (scope === 'due' && dueAt > now) continue;
+      list.push({ word, level, dueAt });
+    }
+    list.sort((a, b) => a.dueAt - b.dueAt || a.level - b.level);
+    return list.slice(0, Math.max(0, limit)).map(({ word, level, dueAt }) => {
       if (!indexCache.has(word.bookId)) indexCache.set(word.bookId, this.indexMap(word.bookId));
-      return { ...this.withIndex(word, indexCache.get(word.bookId).get(word.id)), level };
+      return {
+        ...this.withIndex(word, indexCache.get(word.bookId).get(word.id)),
+        level,
+        dueAt,
+        overdue: dueAt <= now,
+      };
     });
   }
 
-  dueReviewCount(now = Date.now()) {
-    return this.dueReviewWords(Number.MAX_SAFE_INTEGER, now).length;
+  /** 今天该复习的词数（含刚练完还没排上的）。 */
+  reviewWordCount(scope = 'due', now = Date.now()) {
+    return this.reviewWords(Number.MAX_SAFE_INTEGER, scope, now).length;
+  }
+
+  /** 复习统计：待复习量、练过的总量、今天已经复习过多少。 */
+  reviewStats(now = Date.now()) {
+    const due = this.reviewWords(Number.MAX_SAFE_INTEGER, 'due', now);
+    const all = this.reviewWords(Number.MAX_SAFE_INTEGER, 'all', now);
+    const today = dayKey(new Date(now));
+    const answered = new Set(
+      this.db.practiceLog
+        .filter((p) => dayKey(new Date(p.lastAt || 0)) === today)
+        .map((p) => p.wordId),
+    );
+    return {
+      due: due.length,
+      total: all.length,
+      overdue: due.filter((item) => item.level > 0).length,
+      fresh: due.filter((item) => item.level === 0).length,
+      answeredToday: all.filter((item) => answered.has(item.id)).length,
+    };
   }
 
   /** 掌握度：按复习等级把词分成「新词 / 学习中 / 已掌握」三档。 */
@@ -410,7 +473,8 @@ export class Store {
       streak: streak(dayKey(new Date(now)), studied),
       totalAnswered,
       totalCorrect,
-      dueReview: this.dueReviewCount(now),
+      dueReview: this.reviewWordCount('due', now),
+      reviewTotal: this.reviewWordCount('all', now),
       days: stats,
     };
   }
