@@ -9,7 +9,7 @@ import { parseAbout } from './about.js';
 import { createStorage, getLocalStorage, memoryStorage, exportBackup, parseBackup, clearCache } from './persist.js';
 import { autoBackupEnabled, backupIntervalHours, backupKeepCount } from './settings.js';
 
-export const VERSION = 'web-1.7';
+export const VERSION = 'web-1.8';
 export { MODES, isCorrect };
 
 let autoTimer = 0;
@@ -183,11 +183,39 @@ export function listWords(bookId, filter = 'all', query = '') {
   return { words: requireStore().words(bookId, filter, query) };
 }
 
-export function listMistakes(bookId) {
-  const items = requireStore().mistakes(bookId);
+/**
+ * 错题本。
+ * @param {number} bookId
+ * @param {{sort?: string, query?: string}} opts sort: recent / wrong / alpha
+ */
+export function listMistakes(bookId, opts = {}) {
+  const items = requireStore().mistakes(bookId, opts);
   return {
     words: items.map((item) => item.word),
     counts: Object.fromEntries(items.map((item) => [item.word.id, item.wrong])),
+    streaks: Object.fromEntries(items.map((item) => [item.word.id, item.streak])),
+    items,
+  };
+}
+
+/** 从错题本手动移出一个词。 */
+export function removeMistake(wordId) {
+  const ok = requireStore().removeMistake(Number(wordId));
+  if (!ok) throw new Error('这个词不在错题本里');
+  return { ok };
+}
+
+/**
+ * 「已学过」：当前词库练过的词。
+ * @param {number} bookId
+ * @param {'all'|'unmastered'|'mastered'|'forgetting'} filter
+ */
+export function studied(bookId, filter = 'all', query = '') {
+  const s = requireStore();
+  s.ensureReviewRecords();
+  return {
+    words: s.studiedWords(Number(bookId), filter, query),
+    counts: s.studiedCounts(Number(bookId)),
   };
 }
 
@@ -236,14 +264,45 @@ export function dueReview(limit = 200, scope = 'due') {
   };
 }
 
-/** 学习报告：近 days 天统计 + 掌握度 + 最该复习的词。 */
+/** 学习报告：近 days 天统计 + 掌握度 + 未来复习量 + 最该复习的词。 */
 export function report(days = 7, goal = 30) {
   const s = requireStore();
   return {
     summary: s.studySummary(days, goal),
     mastery: s.masteryStats(null),
+    upcoming: s.upcomingReview(days),
     wrong: s.topWrongWords(null, 8),
   };
+}
+
+/**
+ * 一组词练完后的下次复习情况，结果页用。
+ * @param {number[]} wordIds
+ */
+export function nextReviewOf(wordIds) {
+  const s = requireStore();
+  const ids = new Set((Array.isArray(wordIds) ? wordIds : []).map(Number));
+  const now = Date.now();
+  const startToday = new Date(now); startToday.setHours(0, 0, 0, 0);
+  const records = s.db.review.filter((r) => ids.has(r.wordId));
+  if (!records.length) {
+    return { total: 0, today: 0, tomorrow: 0, later: 0, label: '还没排期', earliestDueAt: 0 };
+  }
+  let today = 0;
+  let tomorrow = 0;
+  let later = 0;
+  let earliest = Infinity;
+  for (const r of records) {
+    earliest = Math.min(earliest, r.dueAt || 0);
+    const d = new Date(r.dueAt || 0); d.setHours(0, 0, 0, 0);
+    const days = Math.round((d - startToday) / 86400000);
+    if (days <= 0) today += 1;
+    else if (days === 1) tomorrow += 1;
+    else later += 1;
+  }
+  const days = Math.round((new Date(earliest).setHours(0, 0, 0, 0) - startToday) / 86400000);
+  const label = days <= 0 ? '今天' : (days === 1 ? '明天' : `${days} 天后`);
+  return { total: records.length, today, tomorrow, later, label, earliestDueAt: earliest };
 }
 
 export function setStar(wordId, starred) {
@@ -376,6 +435,7 @@ export function clearAutoBackups() {
 export async function clearOfflineCache() {
   return clearCache();
 }
+
 
 
 

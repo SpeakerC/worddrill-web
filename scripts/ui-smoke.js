@@ -161,7 +161,10 @@ async function main() {
     const report = await page.textContent('.center-col');
     check(report.includes('掌握度'), '报告页应有掌握度');
     check(report.includes('连续打卡'), '报告页应有打卡统计');
-    check((await page.$$('.chart-col')).length === 7, '报告页应有 7 天柱状图');
+    check(report.includes('未来 7 天复习量'), '报告页应有未来 7 天复习量');
+    check((await page.$$('.report-page .chart')).length === 2, '报告页应有近 7 天与未来 7 天两个图表');
+    check((await page.$$('.report-page .chart-col')).length === 14, '两个图表各 7 天');
+    check((await page.$$('.tier-row')).length === 4, '掌握度应有四档');
 
     /* ---------- 设置 / 隐私 ---------- */
     await page.evaluate(() => { location.hash = '#/settings'; });
@@ -204,7 +207,7 @@ async function main() {
     await page.click('[data-action="about"]');
     await page.waitForSelector('.about-card');
     const about = await page.textContent('.about-card');
-    check(about.includes('版本 web-1.7'), '关于页应显示版本');
+    check(about.includes('版本 web-1.8'), '关于页应显示版本');
     check(about.includes('zlt mteacase'), '关于页应显示开发者');
     await page.keyboard.press('Escape');
 
@@ -263,6 +266,8 @@ main().catch((err) => {
   console.error('✖ 冒烟失败：', err.message);
   process.exit(1);
 });
+
+
 
 
 

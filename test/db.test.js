@@ -63,7 +63,7 @@ test('导入按出现顺序递增，重复词跳过', () => {
   assert.deepEqual(store.words(result.bookId).map((w) => w.index), [1, 2, 3]);
 });
 
-test('答错进错题，答对移出；关闭重复时不再抽已练词', () => {
+test('答错进错题，连续答对 2 次才移出；关闭重复时不再抽已练词', () => {
   const store = tempStore();
   const book = store.books()[0];
   const word = store.words(book.id)[0];
@@ -71,16 +71,45 @@ test('答错进错题，答对移出；关闭重复时不再抽已练词', () =>
   store.recordAnswer(word.id, 'en_zh', false);
   assert.equal(store.mistakes(book.id).length, 1);
   assert.equal(store.mistakes(book.id)[0].wrong, 1);
+  assert.equal(store.mistakes(book.id)[0].streak, 0);
 
   const left = store.pickWords(book.id, { start: 1, end: 4, count: 10, allowRepeat: false });
   assert.equal(left.length, 3);
   assert.ok(!left.some((w) => w.id === word.id));
 
+  // 第一次答对：还在错题本里
   store.recordAnswer(word.id, 'en_zh', true);
-  assert.equal(store.mistakes(book.id).length, 0);
+  assert.equal(store.mistakes(book.id).length, 1, '只答对 1 次不该移出');
+  assert.equal(store.mistakes(book.id)[0].streak, 1);
+
+  // 第二次连续答对：移出
+  store.recordAnswer(word.id, 'en_zh', true);
+  assert.equal(store.mistakes(book.id).length, 0, '连续答对 2 次才移出');
 
   store.clearPracticeLog();
   assert.equal(store.pickWords(book.id, { start: 1, end: 4, count: 10, allowRepeat: false }).length, 4);
+});
+
+test('答错一次会把连对次数清零', () => {
+  const store = tempStore();
+  const book = store.books()[0];
+  const word = store.words(book.id)[0];
+
+  store.recordAnswer(word.id, 'en_zh', false); // 进错题
+  store.recordAnswer(word.id, 'en_zh', true);  // 连对 1
+  store.recordAnswer(word.id, 'en_zh', true);  // 连对 2 -> 移出
+  assert.equal(store.mistakes(book.id).length, 0);
+
+  store.recordAnswer(word.id, 'en_zh', false); // 又错，重新进
+  store.recordAnswer(word.id, 'en_zh', true);  // 连对 1
+  store.recordAnswer(word.id, 'en_zh', false); // 答错，清零
+  assert.equal(store.mistakes(book.id)[0].streak, 0, '答错后连对次数归零');
+  assert.equal(store.mistakes(book.id).length, 1);
+
+  store.recordAnswer(word.id, 'en_zh', true);
+  assert.equal(store.mistakes(book.id).length, 1, '只连对 1 次不移出');
+  store.recordAnswer(word.id, 'en_zh', true);
+  assert.equal(store.mistakes(book.id).length, 0, '重新连对 2 次才移出');
 });
 
 test('删除词库会一起清掉错题与练习记录，内置词库删不掉', () => {

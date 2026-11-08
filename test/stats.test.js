@@ -72,18 +72,39 @@ test('答题会写入复习排期与当日统计', () => {
   assert.equal(store.db.daily.find((d) => d.date === dayKey()).correct, 1);
 });
 
-test('掌握度按复习等级分三档', () => {
+test('掌握度按复习等级分四档：新词 / 学习中 / 较熟 / 已掌握', () => {
   const store = tempStore();
   const words = store.words(1);
   store.recordAnswer(words[0].id, 'en_zh', true); // 1 级 → 学习中
+  for (let i = 0; i < 3; i += 1) store.recordAnswer(words[2].id, 'en_zh', true); // 3 级 → 较熟
   for (let i = 0; i < 5; i += 1) store.recordAnswer(words[1].id, 'en_zh', true); // 5 级 → 已掌握
 
   const stats = store.masteryStats(1);
   assert.equal(stats.total, 4);
-  assert.equal(stats.fresh, 2);
+  assert.equal(stats.new, 1, '没练过的');
   assert.equal(stats.learning, 1);
+  assert.equal(stats.familiar, 1);
   assert.equal(stats.mastered, 1);
   assert.equal(stats.masteredPercent, 25);
+
+  // 四档百分比加起来是 100
+  const sum = stats.tiers.reduce((n, t) => n + t.percent, 0);
+  assert.equal(sum, 100);
+  assert.deepEqual(stats.tiers.map((t) => t.key), ['new', 'learning', 'familiar', 'mastered']);
+});
+
+test('只看练过的词时，新词档只统计练过但还没升级的', () => {
+  const store = tempStore();
+  const words = store.words(1);
+  store.recordAnswer(words[0].id, 'en_zh', true);
+
+  const all = store.masteryStats({ bookId: 1 });
+  assert.equal(all.total, 4);
+
+  const studied = store.masteryStats({ bookId: 1, studiedOnly: true });
+  assert.equal(studied.total, 1, '只算练过的');
+  assert.equal(studied.learning, 1);
+  assert.equal(studied.new, 0);
 });
 
 test('复习列表只返回没屏蔽的词，到期的排前面', () => {

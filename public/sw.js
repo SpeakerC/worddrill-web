@@ -2,7 +2,7 @@
  * 离线缓存：装到桌面后断网也能用。
  * 改了任何静态文件，把 VERSION 加一，用户下次打开就会拿到新版本。
  */
-const VERSION = '1.7.0';
+const VERSION = '1.8.0';
 const CACHE = `worddrill-${VERSION}`;
 
 const ASSETS = [
@@ -100,6 +100,7 @@ self.addEventListener('fetch', (event) => {
     }),
   );
 });
+
 
 
 

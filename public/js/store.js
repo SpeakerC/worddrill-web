@@ -7,7 +7,18 @@
  * 「当前可见索引」——屏蔽词不占号，其余单词从 1 连续编号。
  */
 
-import { nextLevel, nextDueAt, dayKey, recentDayKeys, streak } from './review.js';
+import { nextLevel, nextDueAt, dayKey, recentDayKeys, upcomingDayKeys, streak } from './review.js';
+
+/** 错题连续答对几次才移出错题本。 */
+export const MISTAKE_CLEAR_STREAK = 2;
+
+/** 复习等级分档：报告页的「掌握度」用这几档。 */
+export const MASTERY_TIERS = [
+  { key: 'new', label: '新词', hint: '还没开始记' },
+  { key: 'learning', label: '学习中', hint: '1 – 2 级' },
+  { key: 'familiar', label: '较熟', hint: '3 – 4 级' },
+  { key: 'mastered', label: '已掌握', hint: '5 级及以上' },
+];
 
 export function emptyDb() {
   return {
@@ -352,19 +363,55 @@ export class Store {
     return list.map((w) => this.withIndex(w, index.get(w.id)));
   }
 
-  mistakes(bookId = null) {
+  /**
+   * 错题本。
+   * @param {number|null} bookId
+   * @param {{sort?: 'recent'|'wrong'|'alpha', query?: string}} opts
+   *   recent 最近答错（默认）· wrong 错得最多 · alpha 按字母
+   */
+  mistakes(bookId = null, opts = {}) {
+    const { sort = 'recent', query = '' } = opts;
+    const q = String(query || '').trim().toLowerCase();
     const indexCache = new Map();
     const byId = new Map(this.db.words.map((w) => [w.id, w]));
-    return this.db.mistakes
+    const list = this.db.mistakes
       .map((m) => {
         const word = byId.get(m.wordId);
         if (!word || word.blocked) return null;
         if (bookId != null && word.bookId !== bookId) return null;
         if (!indexCache.has(word.bookId)) indexCache.set(word.bookId, this.indexMap(word.bookId));
-        return { word: this.withIndex(word, indexCache.get(word.bookId).get(word.id)), wrong: m.wrong, lastAt: m.lastAt };
+        return {
+          word: this.withIndex(word, indexCache.get(word.bookId).get(word.id)),
+          wrong: m.wrong,
+          streak: m.streak || 0,
+          lastAt: m.lastAt,
+        };
       })
-      .filter(Boolean)
-      .sort((a, b) => b.lastAt - a.lastAt);
+      .filter(Boolean);
+
+    const filtered = q
+      ? list.filter(
+        (item) => item.word.word.toLowerCase().includes(q)
+            || String(item.word.meaning).toLowerCase().includes(q),
+      )
+      : list;
+
+    if (sort === 'wrong') {
+      return filtered.sort((a, b) => b.wrong - a.wrong || b.lastAt - a.lastAt);
+    }
+    if (sort === 'alpha') {
+      return filtered.sort((a, b) => a.word.word.localeCompare(b.word.word, 'en'));
+    }
+    return filtered.sort((a, b) => b.lastAt - a.lastAt);
+  }
+
+  /** 从错题本里手动移出（不计入答对次数）。 */
+  removeMistake(wordId) {
+    const before = this.db.mistakes.length;
+    this.db.mistakes = this.db.mistakes.filter((m) => m.wordId !== wordId);
+    if (this.db.mistakes.length === before) return false;
+    this.change('mistakes');
+    return true;
   }
 
   allWords() {
@@ -444,13 +491,21 @@ export class Store {
     const now = Date.now();
     const mistake = this.db.mistakes.find((m) => m.wordId === wordId);
     if (correct) {
-      this.db.mistakes = this.db.mistakes.filter((m) => m.wordId !== wordId);
+      // 错题要连续答对 MISTAKE_CLEAR_STREAK 次才移出，答错一次就清零
+      if (mistake) {
+        mistake.streak = (mistake.streak || 0) + 1;
+        mistake.lastAt = now;
+        if (mistake.streak >= MISTAKE_CLEAR_STREAK) {
+          this.db.mistakes = this.db.mistakes.filter((m) => m.wordId !== wordId);
+        }
+      }
     } else if (mistake) {
       mistake.wrong += 1;
+      mistake.streak = 0;
       mistake.mode = mode;
       mistake.lastAt = now;
     } else {
-      this.db.mistakes.push({ wordId, mode, wrong: 1, lastAt: now });
+      this.db.mistakes.push({ wordId, mode, wrong: 1, streak: 0, lastAt: now });
     }
     const log = this.db.practiceLog.find((p) => p.wordId === wordId);
     if (log) {
@@ -558,6 +613,87 @@ export class Store {
     return this.reviewWords(Number.MAX_SAFE_INTEGER, scope, now).length;
   }
 
+  /**
+   * 未来 days 天每天要复习多少词（含今天）。
+   * 已经过期的统一算到今天，让「今天该复习」的数字对得上。
+   */
+  upcomingReview(days = 7, now = Date.now()) {
+    // 从今天起往后数 days 天，不是往前
+    const keys = upcomingDayKeys(days, now);
+    const buckets = keys.map((date) => ({ date, count: 0, overdue: false }));
+    const firstIndex = new Map(buckets.map((b, i) => [b.date, i]));
+    const todayIndex = 0;
+    buckets[todayIndex].overdue = true;
+
+    for (const item of this.reviewWords(Number.MAX_SAFE_INTEGER, 'all', now)) {
+      const key = dayKey(new Date(item.dueAt || 0));
+      const index = firstIndex.get(key);
+      // 过期的、以及超出窗口的都并入今天
+      buckets[index == null ? todayIndex : index].count += 1;
+    }
+    return buckets;
+  }
+
+  /**
+   * 「已学过」：当前词库练过的词，带复习等级与下次复习时间。
+   * @param {number} bookId
+   * @param {'all'|'unmastered'|'mastered'|'forgetting'} filter
+   *   unmastered 还没掌握（等级 < 5）· mastered 已掌握 · forgetting 易忘（答错过或遗忘次数多）
+   */
+  studiedWords(bookId, filter = 'all', query = '') {
+    const q = String(query || '').trim().toLowerCase();
+    const records = new Map(this.db.review.map((r) => [r.wordId, r]));
+    const mistakeMap = new Map(this.db.mistakes.map((m) => [m.wordId, m]));
+    const logMap = new Map(this.db.practiceLog.map((p) => [p.wordId, p]));
+    const index = this.indexMap(bookId);
+    const byId = new Map(this.db.words.map((w) => [w.id, w]));
+    const list = [];
+    for (const wordId of this.studiedIds()) {
+      const word = byId.get(wordId);
+      if (!word || word.blocked || word.bookId !== bookId) continue;
+      const record = records.get(wordId);
+      const level = record ? (record.level || 0) : 0;
+      const dueAt = record ? (record.dueAt || 0) : 0;
+      const mistake = mistakeMap.get(wordId);
+      const log = logMap.get(wordId);
+      list.push({
+        ...this.withIndex(word, index.get(word.id)),
+        // 注意：withIndex 的 `word` 字段是拼写，这里不能再叫 word
+        level,
+        dueAt,
+        lapses: record ? (record.lapses || 0) : 0,
+        wrong: mistake ? mistake.wrong : 0,
+        streak: mistake ? (mistake.streak || 0) : 0,
+        times: log ? log.times : 1,
+        mastered: level >= 5,
+        // 易忘：答错过，或者复习时遗忘过 2 次以上
+        forgetting: Boolean(mistake) || (record ? (record.lapses || 0) >= 2 : false),
+      });
+    }
+    let out = list;
+    if (filter === 'unmastered') out = out.filter((w) => !w.mastered);
+    else if (filter === 'mastered') out = out.filter((w) => w.mastered);
+    else if (filter === 'forgetting') out = out.filter((w) => w.forgetting);
+    if (q) {
+      out = out.filter(
+        (w) => w.word.toLowerCase().includes(q) || String(w.meaning).toLowerCase().includes(q),
+      );
+    }
+    // 最该复习的排前面：过期的优先，其次等级低的
+    return out.sort((a, b) => a.dueAt - b.dueAt || a.level - b.level || a.id - b.id);
+  }
+
+  /** 已学过页面的三个筛选项各有多少词。 */
+  studiedCounts(bookId) {
+    const all = this.studiedWords(bookId, 'all');
+    return {
+      all: all.length,
+      unmastered: all.filter((w) => !w.mastered).length,
+      mastered: all.filter((w) => w.mastered).length,
+      forgetting: all.filter((w) => w.forgetting).length,
+    };
+  }
+
   /** 复习统计：待复习量、练过的总量、今天已经复习过多少。 */
   reviewStats(now = Date.now()) {
     const due = this.reviewWords(Number.MAX_SAFE_INTEGER, 'due', now);
@@ -577,28 +713,40 @@ export class Store {
     };
   }
 
-  /** 掌握度：按复习等级把词分成「新词 / 学习中 / 已掌握」三档。 */
+  /**
+   * 掌握度：按复习等级分四档——新词 0 / 学习中 1–2 / 较熟 3–4 / 已掌握 5+。
+   * @param {object|null} opts `{ bookId }` 只看一本；`{ studiedOnly: true }` 只看练过的词
+   */
   masteryStats(bookId = null) {
+    const opts = typeof bookId === 'object' && bookId !== null ? bookId : { bookId };
+    const scopeBook = opts.bookId == null ? null : opts.bookId;
+    const studided = opts.studiedOnly ? this.studiedIds() : null;
     const words = this.db.words.filter(
-      (w) => !w.blocked && (bookId == null || w.bookId === bookId),
+      (w) => !w.blocked
+        && (scopeBook == null || w.bookId === scopeBook)
+        && (!studided || studided.has(w.id)),
     );
     const levels = new Map(this.db.review.map((r) => [r.wordId, r.level || 0]));
-    let fresh = 0;
-    let learning = 0;
-    let mastered = 0;
+    const counts = { new: 0, learning: 0, familiar: 0, mastered: 0 };
     for (const word of words) {
       const level = levels.get(word.id) || 0;
-      if (level >= 5) mastered += 1;
-      else if (level >= 1) learning += 1;
-      else fresh += 1;
+      if (level >= 5) counts.mastered += 1;
+      else if (level >= 3) counts.familiar += 1;
+      else if (level >= 1) counts.learning += 1;
+      else counts.new += 1;
     }
     const total = words.length;
     return {
       total,
-      fresh,
-      learning,
-      mastered,
-      masteredPercent: total ? Math.round((mastered * 100) / total) : 0,
+      ...counts,
+      // 兼容旧调用方
+      fresh: counts.new,
+      masteredPercent: total ? Math.round((counts.mastered * 100) / total) : 0,
+      tiers: MASTERY_TIERS.map((tier) => ({
+        ...tier,
+        count: counts[tier.key],
+        percent: total ? Math.round((counts[tier.key] * 100) / total) : 0,
+      })),
     };
   }
 

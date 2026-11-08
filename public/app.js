@@ -43,6 +43,8 @@ const state = {
   practice: null,
   result: null,
   listFilter: 'all',
+  studiedFilter: 'all',
+  mistakeSort: 'recent',
   listLimit: 200,
   search: '',
   importBookId: null,
@@ -120,6 +122,7 @@ async function route() {
     if (name === 'list') return renderList();
     if (name === 'books') return renderBooks();
     if (name === 'import') return renderImport();
+    if (name === 'studied') return renderStudied();
     if (name === 'report') return renderReport();
     if (name === 'settings') return renderSettings();
     if (name === 'privacy') return renderPrivacy();
@@ -279,6 +282,7 @@ async function renderHome() {
         <div class="footer-actions">
           <button class="btn ghost" data-action="list-starred">星标词汇</button>
           <button class="btn ghost" data-action="list-mistakes">错题本</button>
+          <button class="btn ghost" data-action="studied">已学过</button>
         </div>
 
         <div style="text-align:center">
@@ -624,6 +628,10 @@ function renderResult() {
   const percent = total ? Math.round((correct * 100) / total) : 0;
   const wrong = result.records.filter((r) => !r.correct);
 
+  // 这批词练完后的下次复习时间
+  const ids = result.records.map((r) => r.wordId);
+  const nextReview = repo.nextReviewOf(ids);
+
   app.innerHTML = `
     <div class="center-col">
       ${pageHead('练习结果')}
@@ -632,6 +640,22 @@ function renderResult() {
         <div class="result-detail">答对 ${correct} / ${total} 题 · ${esc(modeLabel(result.mode))} · ${esc(result.bookName)}</div>
         <div class="bar on-light" style="margin-top:16px"><i style="width:${percent}%"></i></div>
       </div>
+
+      ${nextReview.total ? `
+      <div class="card review-next">
+        <div class="review-next-head">
+          <div>
+            <div class="title">这批词的下次复习</div>
+            <small>共 ${nextReview.total} 个词，按最早到期算</small>
+          </div>
+          <div class="review-next-when">${esc(nextReview.label)}</div>
+        </div>
+        <div class="review-next-row">
+          <div><b>${nextReview.today}</b><span>今天再来</span></div>
+          <div><b>${nextReview.tomorrow}</b><span>明天</span></div>
+          <div><b>${nextReview.later}</b><span>更久以后</span></div>
+        </div>
+      </div>` : ''}
 
       <div class="wrong-label">${wrong.length ? `错题 ${wrong.length}` : '全部答对，没有错题'}</div>
       ${wrong.map((r) => `
@@ -669,7 +693,14 @@ async function renderList() {
   state.listLimit = LIST_PAGE;
   const data = await loadListData(book, filter);
   state.listData = data;
-  const title = filter === 'blocked' ? '已屏蔽单词' : '词表';
+  const title = filter === 'blocked' ? '已屏蔽单词' : (filter === 'mistakes' ? '错题本' : '词表');
+  const isMistakes = filter === 'mistakes';
+
+  const sortTabs = isMistakes ? `
+      <div class="seg-group">
+        ${[['recent', '最近答错'], ['wrong', '错得最多'], ['alpha', '按字母']].map(([key, label]) => `
+          <button class="seg${state.mistakeSort === key ? ' on' : ''}" data-action="mistake-sort" data-sort="${key}">${label}</button>`).join('')}
+      </div>` : '';
 
   app.innerHTML = `
     <div class="center-col wide">
@@ -678,16 +709,18 @@ async function renderList() {
         ${filter === 'blocked' ? '<button class="btn text small" data-action="show-all">返回词表</button>' : ''}
         ${filter === 'all' && !book.builtin ? `<button class="btn text small" data-action="append">追加单词</button>` : ''}
         ${filter === 'blocked' && data.words.length ? '<button class="btn text small" data-action="unblock-all">全部恢复</button>' : ''}
-        ${filter === 'mistakes' ? '<button class="btn text small" data-action="clear-mistakes">清空错题</button>' : ''}`)}
+        ${isMistakes && data.words.length ? '<button class="btn text small danger-text" data-action="clear-mistakes">一键清空</button>' : ''}`)}
+      ${sortTabs}
       <div class="toolbar-row">
-        <input id="searchInput" class="search" placeholder="搜索单词或释义" value="${esc(state.search)}">
+        <input id="searchInput" class="search" placeholder="${isMistakes ? '搜索错题单词或释义' : '搜索单词或释义'}" value="${esc(state.search)}">
       </div>
       <div class="list-meta" id="listMeta">${listMetaText(filter, data, book)}</div>
       <div id="listRows">${listRowsHtml(data, filter, book)}</div>
       <div id="listMore">${listMoreHtml(data)}</div>
       <div class="footer-actions" style="margin-top:16px">
-        ${filter === 'blocked' ? '' : `<button class="btn block" data-action="practice-list">练习这些单词</button>`}
+        ${filter === 'blocked' ? '' : `<button class="btn block" data-action="practice-list" ${data.words.length ? '' : 'disabled'}>练习这些单词</button>`}
       </div>
+      ${isMistakes && data.words.length ? '<div class="hint" style="text-align:center;margin-top:10px">答对 2 次后自动移出 · 也可以长按某一行手动移出</div>' : ''}
     </div>`;
 
   const search = document.getElementById('searchInput');
@@ -703,11 +736,51 @@ async function renderList() {
       document.getElementById('listMore').innerHTML = listMoreHtml(fresh);
     }, 220);
   });
+
+  if (isMistakes) bindLongPress();
+}
+
+/** 错题本长按某一行：手动移出错题本。 */
+function bindLongPress() {
+  const rows = document.getElementById('listRows');
+  if (!rows) return;
+  let timer = 0;
+  let target = null;
+  const cancel = () => { clearTimeout(timer); timer = 0; target = null; };
+
+  rows.addEventListener('pointerdown', (event) => {
+    const row = event.target.closest('[data-longpress]');
+    if (!row) return;
+    target = row;
+    timer = setTimeout(async () => {
+      timer = 0;
+      // 先抓住元素：手指抬起会触发 cancel 把 target 清空
+      const element = target;
+      if (!element) return;
+      const id = Number(element.dataset.longpress);
+      const name = element.dataset.word || '';
+      element.classList.add('pressing');
+      const ok = await confirmDialog('移出错题本？', `「${name}」会从错题本里移除，练习记录和复习排期不受影响。`, '移出');
+      if (element.isConnected) element.classList.remove('pressing');
+      if (!ok) return;
+      try {
+        repo.removeMistake(id);
+        toast(`已移出 ${name}`);
+        await renderList();
+      } catch (err) { toast(err.message); }
+    }, 550);
+  });
+  rows.addEventListener('pointerup', cancel);
+  rows.addEventListener('pointerleave', cancel);
+  rows.addEventListener('pointercancel', cancel);
+  rows.addEventListener('contextmenu', (e) => { if (timer) { e.preventDefault(); cancel(); } });
 }
 
 async function loadListData(book, filter) {
   if (!book) return { words: [], counts: {} };
-  if (filter === 'mistakes') return repo.listMistakes(book.id);
+  if (filter === 'mistakes') {
+    return repo.listMistakes(book.id, { sort: state.mistakeSort, query: state.search || '' });
+  }
   return { words: repo.listWords(book.id, filter, state.search || '').words, counts: {} };
 }
 
@@ -725,9 +798,17 @@ function listRowsHtml(data, filter, book) {
   }
   const limit = Math.min(state.listLimit || 200, data.words.length);
   return data.words.slice(0, limit).map((word) => {
-    const extra = data.counts[word.id] ? `<div class="extra">错 ${data.counts[word.id]} 次</div>` : '';
+    const wrong = data.counts[word.id];
+    const streak = data.streaks ? (data.streaks[word.id] || 0) : 0;
+    let extra = '';
+    if (wrong) {
+      extra = filter === 'mistakes'
+        ? `<div class="extra">错 ${wrong} 次${streak ? ` · 已连对 ${streak} 次，再对 ${2 - streak} 次移出` : ''}</div>`
+        : `<div class="extra">错 ${wrong} 次</div>`;
+    }
+    const longpress = filter === 'mistakes' ? ` data-longpress="${word.id}" data-word="${esc(word.word)}"` : '';
     return `
-      <div class="word-row">
+      <div class="word-row${filter === 'mistakes' ? ' longpressable' : ''}"${longpress}>
         <div class="idx">${word.index == null ? '' : word.index}</div>
         <div class="body">
           <div class="w">${esc(word.word)}</div>
@@ -736,6 +817,7 @@ function listRowsHtml(data, filter, book) {
         </div>
         <div class="acts">
           <button class="icon-btn ${word.starred ? 'star-on' : ''}" data-action="row-star" data-id="${word.id}" title="星标">${word.starred ? '★' : '☆'}</button>
+          ${filter === 'mistakes' ? `<button class="btn small ghost" data-action="row-remove-mistake" data-id="${word.id}">移出</button>` : ''}
           ${filter === 'blocked' ? `<button class="btn small ghost" data-action="row-unblock" data-id="${word.id}">恢复</button>`
     : (filter === 'all' && !book.builtin ? `<button class="btn small ghost" data-action="row-block" data-id="${word.id}">屏蔽</button>` : '')}
         </div>
@@ -808,6 +890,99 @@ async function refreshList() {
   if (practiceBtn) practiceBtn.disabled = data.words.length === 0;
 }
 
+/* ---------- 已学过 ---------- */
+
+/** 把时间戳说成人话：今天 / 明天 / 3 天后 / 已过期。 */
+function dueText(dueAt, now = Date.now()) {
+  if (!dueAt) return '还没排期';
+  const startToday = new Date(now); startToday.setHours(0, 0, 0, 0);
+  const startDue = new Date(dueAt); startDue.setHours(0, 0, 0, 0);
+  const days = Math.round((startDue - startToday) / 86400000);
+  if (days < 0) return `已过期 ${-days} 天`;
+  if (days === 0) return '今天';
+  if (days === 1) return '明天';
+  return `${days} 天后`;
+}
+
+async function renderStudied() {
+  const book = currentBook();
+  if (!book) { location.hash = '#/'; return; }
+  const filter = state.studiedFilter;
+  const data = repo.studied(book.id, filter, state.search || '');
+  state.listData = { words: data.words };
+  const c = data.counts;
+
+  const tabs = [
+    ['all', '全部', c.all],
+    ['unmastered', '还没掌握', c.unmastered],
+    ['mastered', '已掌握', c.mastered],
+    ['forgetting', '易忘', c.forgetting],
+  ].map(([key, label, count]) => `
+    <button class="seg${filter === key ? ' on' : ''}" data-action="studied-filter" data-filter="${key}">
+      ${label}<i>${count}</i>
+    </button>`).join('');
+
+  app.innerHTML = `
+    <div class="center-col wide">
+      ${pageHead('已学过', '<button class="btn small ghost" data-action="home">返回</button>')}
+      ${c.all ? `<div class="seg-group">${tabs}</div>
+      <div class="toolbar-row">
+        <input id="searchInput" class="search" placeholder="搜索单词或释义" value="${esc(state.search)}">
+      </div>` : ''}
+      <div class="list-meta" id="listMeta">${studiedMeta(filter, data)}</div>
+      <div id="listRows">${studiedRowsHtml(data.words)}</div>
+      ${c.all ? `<div class="footer-actions" style="margin-top:16px">
+        <button class="btn block" data-action="studied-practice" ${data.words.length ? '' : 'disabled'}>练习这些单词</button>
+      </div>` : ''}
+    </div>`;
+
+  const search = document.getElementById('searchInput');
+  if (search) {
+    search.addEventListener('input', () => {
+      state.search = search.value;
+      clearTimeout(state.searchTimer);
+      state.searchTimer = setTimeout(() => {
+        const fresh = repo.studied(currentBook().id, filter, state.search || '');
+        state.listData = { words: fresh.words };
+        document.getElementById('listRows').innerHTML = studiedRowsHtml(fresh.words);
+        document.getElementById('listMeta').textContent = studiedMeta(filter, fresh);
+        const btn = document.querySelector('[data-action="studied-practice"]');
+        if (btn) btn.disabled = fresh.words.length === 0;
+      }, 220);
+    });
+  }
+}
+
+function studiedMeta(filter, data) {
+  if (!data.counts.all) return '这个词库还没有练过的词，先去练一轮吧';
+  if (!data.words.length) return '没有符合条件的单词';
+  const label = { all: '练过的词', unmastered: '还没掌握', mastered: '已掌握', forgetting: '易忘' }[filter] || '';
+  return `${label} ${data.words.length} 个 · 按该复习的排在前面`;
+}
+
+function studiedRowsHtml(words) {
+  if (!words.length) return '<div class="empty">没有符合条件的单词</div>';
+  return words.map((w) => {
+    const now = Date.now();
+    const overdue = w.dueAt && w.dueAt <= now;
+    const tag = w.mastered
+      ? '<span class="chip ok">已掌握</span>'
+      : (w.forgetting ? '<span class="chip warn">易忘</span>' : `<span class="chip">${w.level} 级</span>`);
+    return `
+      <div class="word-row">
+        <div class="idx">${w.index == null ? '' : w.index}</div>
+        <div class="body">
+          <div class="w">${esc(w.word)} ${tag}</div>
+          <div class="m">${esc(w.pos ? `${w.pos} ${w.meaning}` : w.meaning)}</div>
+          <div class="extra${overdue ? ' overdue' : ''}">下次复习 ${dueText(w.dueAt, now)} · 练过 ${w.times} 次${w.wrong ? ` · 错 ${w.wrong} 次` : ''}</div>
+        </div>
+        <div class="acts">
+          <button class="icon-btn ${w.starred ? 'star-on' : ''}" data-action="row-star" data-id="${w.id}" title="星标">${w.starred ? '★' : '☆'}</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
 /* ---------- 词库管理 ---------- */
 
 async function renderBooks() {
@@ -828,25 +1003,8 @@ async function renderBooks() {
           </div>
         </div>`).join('')}
 
-      <div class="card" style="margin-top:16px">
-        <div class="title">数据备份</div>
-        <div class="hint">所有单词、星标、错题都保存在这台设备的浏览器里。换手机或清理浏览器数据前，先导出一份备份。</div>
-        <div class="footer-actions" style="margin-top:12px">
-          <button class="btn ghost" data-action="export-backup">导出备份</button>
-          <button class="btn ghost" data-action="import-backup">恢复备份</button>
-        </div>
-        <div class="hint" style="margin-top:10px">${esc(storageLine(info))}</div>
-        <input id="backupFile" type="file" accept="application/json,.json" hidden>
-      </div>
+      <div class="hint" style="margin-top:16px">${esc(storageLine(info))}</div>
     </div>`;
-
-  const backupFile = document.getElementById('backupFile');
-  backupFile.addEventListener('change', async () => {
-    const file = backupFile.files && backupFile.files[0];
-    if (!file) return;
-    await restoreBackup(file);
-    backupFile.value = '';
-  });
 }
 
 function storageLine(info) {
@@ -1058,7 +1216,7 @@ const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 async function renderReport() {
   app.classList.add('on-report');
   const goal = settings.dailyGoal();
-  const { summary, mastery, wrong } = repo.report(7, goal);
+  const { summary, mastery, wrong, upcoming } = repo.report(7, goal);
   const accuracy = summary.totalAnswered
     ? Math.round((summary.totalCorrect * 100) / summary.totalAnswered)
     : 0;
@@ -1084,6 +1242,21 @@ async function renderReport() {
   const due = review.stats.due;
   const reviewTotal = review.stats.total;
   const hasReview = reviewTotal > 0;
+
+  // 未来 7 天复习量：柱子上标数量，今天优先
+  const maxFuture = Math.max(...upcoming.map((d) => d.count), 1);
+  const futureChart = upcoming.map((day, i) => {
+    const height = Math.round((day.count / maxFuture) * 100);
+    const ms = new Date(`${day.date}T12:00:00`).getDay();
+    const label = i === 0 ? '今天' : WEEKDAY[ms];
+    return `
+      <div class="chart-col${i === 0 ? ' today' : ''}" title="${esc(day.date)} · ${day.count} 词">
+        <div class="chart-bar"><i style="height:${height}%"></i></div>
+        <div class="chart-label">${label}</div>
+        <div class="chart-count">${day.count || ''}</div>
+      </div>`;
+  }).join('');
+  const futureTotal = upcoming.reduce((n, d) => n + d.count, 0);
 
   app.innerHTML = `
     <div class="center-col wide report-page">
@@ -1134,6 +1307,19 @@ async function renderReport() {
         </section>
 
         <section class="report-tile">
+          <div class="section-label">未来 7 天复习量</div>
+          <div class="card report-card">
+            <div class="chart">${futureChart}</div>
+            <div class="divider"></div>
+            <div class="report-facts">
+              <div><b>${upcoming[0] ? upcoming[0].count : 0}</b><span>今天该复习</span></div>
+              <div><b>${futureTotal}</b><span>7 天内合计</span></div>
+              <div><b>${reviewTotal}</b><span>练过的总数</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="report-tile">
           <div class="section-label">掌握度</div>
           <div class="card report-card">
             <div class="report-figure">
@@ -1141,16 +1327,19 @@ async function renderReport() {
               <div class="figure-k">已掌握 ${mastery.mastered} / ${mastery.total} 词</div>
             </div>
             <div class="bar on-light"><i style="width:${mastery.masteredPercent}%"></i></div>
-            <div class="report-facts" style="margin-top:14px">
-              <div><b>${mastery.fresh}</b><span>新词</span></div>
-              <div><b>${mastery.learning}</b><span>学习中</span></div>
-              <div><b>${mastery.mastered}</b><span>已掌握</span></div>
+            <div class="tier-list">
+              ${mastery.tiers.map((tier) => `
+                <div class="tier-row">
+                  <span class="tier-name">${tier.label}</span>
+                  <span class="tier-bar"><i class="tier-${tier.key}" style="width:${tier.percent}%"></i></span>
+                  <span class="tier-num">${tier.count}</span>
+                </div>`).join('')}
             </div>
-            <div class="hint" style="margin-top:12px">复习等级到 5 级（约 30 天）算掌握；答错会归零重来</div>
+            <div class="hint" style="margin-top:10px">新词 0 级 · 学习中 1–2 级 · 较熟 3–4 级 · 已掌握 5 级以后</div>
           </div>
         </section>
 
-        <section class="report-tile span-2">
+        <section class="report-tile">
           <div class="section-label">最该复习的词</div>
           <div class="card report-card">
             ${wrong.length ? `<div class="wrong-grid">${wrong.map((item) => `
@@ -1261,6 +1450,20 @@ async function renderSettings() {
           <div class="section-label">其他</div>
           <div class="card settings">
             <div class="setting-row" style="padding-top:0">
+              <div class="setting-text">
+                <div class="title">Android 版 App</div>
+                <small>下载 APK 安装包（1.3.5）</small>
+              </div>
+              <a class="btn small ghost" href="https://gitee.com/MTeaCase/worddrill/releases/download/v1.3.5/WordDrill-1.3.5.apk" target="_blank" rel="noopener">下载</a>
+            </div>
+            <div class="setting-row">
+              <div class="setting-text">
+                <div class="title">iOS 安装教程</div>
+                <small>用描述文件把网页加到主屏幕</small>
+              </div>
+              <a class="btn small ghost" href="https://github.com/SpeakerC/worddrill-web/releases/tag/ios-1.6" target="_blank" rel="noopener">查看教程</a>
+            </div>
+            <div class="setting-row">
               <div class="setting-text">
                 <div class="title">隐私政策</div>
                 <small>会存哪些数据、什么时候联网</small>
@@ -1745,6 +1948,46 @@ app.addEventListener('click', async (event) => {
       } catch (err) { toast(err.message); }
       break;
     }
+    case 'mistake-sort':
+      state.mistakeSort = target.dataset.sort || 'recent';
+      state.listLimit = LIST_PAGE;
+      await renderList();
+      break;
+    case 'row-remove-mistake': {
+      const id = Number(target.dataset.id);
+      const word = (state.listData && state.listData.words.find((w) => w.id === id)) || null;
+      try {
+        repo.removeMistake(id);
+        toast(`已移出 ${word ? word.word : '该单词'}`);
+        await renderList();
+      } catch (err) { toast(err.message); }
+      break;
+    }
+    case 'studied':
+      state.studiedFilter = 'all';
+      state.search = '';
+      location.hash = '#/studied';
+      break;
+    case 'studied-filter':
+      state.studiedFilter = target.dataset.filter || 'all';
+      state.search = '';
+      await renderStudied();
+      break;
+    case 'studied-practice': {
+      const book = currentBook();
+      const data = state.listData && state.listData.words ? state.listData.words : [];
+      const ids = data.map((w) => w.id);
+      if (!ids.length) { toast('还没有可练习的单词'); return; }
+      const chosen = await chooseCount(ids.length);
+      if (!chosen) return;
+      await startPractice(
+        { count: chosen, start: 1, end: Number.MAX_SAFE_INTEGER, allowRepeat: true },
+        chosen >= ids.length ? ids : ids.slice(0, chosen),
+        'all',
+        book.name,
+      );
+      break;
+    }
     case 'clear-mistakes': {
       const book = currentBook();
       const ok = await confirmDialog('清空错题本？', `会把「${book.name}」的错题记录全部删除，星标不受影响。`, '清空');
@@ -1921,3 +2164,11 @@ boot().catch((err) => {
     <h2>启动失败</h2><p>${esc(err.message)}</p>
     <p class="hint">请确认浏览器允许本地存储，然后刷新页面重试。</p></div>`;
 });
+
+
+
+
+
+
+
+

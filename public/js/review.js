@@ -55,6 +55,19 @@ export function recentDayKeys(days, now = Date.now()) {
   return out;
 }
 
+/** 从今天起往后 days 天（含今天）的日期键，从近到远。 */
+export function upcomingDayKeys(days, now = Date.now()) {
+  const count = Math.max(0, Math.trunc(Number(days) || 0));
+  const out = [];
+  for (let offset = 0; offset < count; offset += 1) {
+    const d = new Date(now);
+    d.setHours(12, 0, 0, 0);
+    d.setDate(d.getDate() + offset);
+    out.push(dayKey(d));
+  }
+  return out;
+}
+
 /**
  * 连续打卡天数。今天练过就从今天往前数；今天还没练不算断签，从昨天开始数。
  */
