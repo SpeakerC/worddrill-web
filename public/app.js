@@ -1112,6 +1112,14 @@ async function renderImport() {
   app.innerHTML = `
     ${pageHead(appending ? '追加单词' : '导入词汇表')}
     <div class="center-col">
+      <div class="import-tip">
+        <div class="import-tip-title">可以把词表发给你惯用的 AI，让它按下面的格式整理：</div>
+        <pre class="import-tip-format">| 英文 | 词性 | 汉语 |
+|---|---|---|
+| competence | n. | 能力；胜任 |
+| abandon | v. | 抛弃，舍弃 |</pre>
+        <div class="import-tip-note">三列即可；没有词性就留空成两列。序号列可留可不留。</div>
+      </div>
       <div class="card">
         <label class="hint" for="nameInput">词库名称</label>
         <input id="nameInput" class="input" value="${appending ? esc(book.name) : ''}" ${appending ? 'disabled' : ''} placeholder="例如：必修一 Unit 3">

@@ -1243,3 +1243,49 @@ button, .mode, .opt, .word-row, .drop { -webkit-tap-highlight-color: transparent
   .home-page .footer-actions { flex-wrap: wrap; }
   .home-page .footer-actions .btn { flex: 1 1 calc(50% - 5px); }
 }
+
+/* ---------- 导入页：黄色格式提示 ---------- */
+
+.import-tip {
+  margin-bottom: 14px;
+  padding: 13px 16px;
+  border: 1px solid #f0d9a0;
+  border-left: 3px solid #e0a52e;
+  border-radius: 12px;
+  background: #fff8e6;
+  color: #6b4f11;
+}
+
+.import-tip-title { font-size: 13.5px; font-weight: 600; line-height: 1.5; }
+
+.import-tip-format {
+  margin: 9px 0 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #4a3512;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+  white-space: pre;
+}
+
+.import-tip-note { margin-top: 8px; font-size: 12px; opacity: 0.78; }
+
+[data-theme="dark"] .import-tip {
+  border-color: #4a3a1c;
+  border-left-color: #c9962a;
+  background: #2a2313;
+  color: #e6cf9a;
+}
+[data-theme="dark"] .import-tip-format {
+  background: rgba(0, 0, 0, 0.28);
+  color: #f0dcae;
+}
+
+@media (max-width: 560px) {
+  .import-tip { padding: 12px 13px; }
+  .import-tip-title { font-size: 13px; }
+  .import-tip-format { font-size: 11.5px; }
+}
