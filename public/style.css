@@ -1868,3 +1868,57 @@ button, .mode, .opt, .word-row, .drop { -webkit-tap-highlight-color: transparent
   /* 两列后左右两栏顶部对齐，不用再多留间距 */
   .home-page .home-grid { align-items: start; }
 }
+
+/* ---------- 词库选择嵌入进度卡 ---------- */
+
+.hero-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hero-book { position: relative; flex: none; max-width: 62%; }
+
+.hero-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 10px 5px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+.hero-pick:hover { background: rgba(255, 255, 255, 0.24); border-color: rgba(255, 255, 255, 0.5); }
+.hero-pick:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.32); }
+
+.hero-pick-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hero-book .book-select-arrow { width: 14px; height: 14px; stroke: #fff; }
+.hero-book.open .book-select-arrow { transform: rotate(180deg); }
+
+/* 菜单从进度卡里弹出，用深色底保证在蓝色卡片上看得清 */
+.hero-book .book-picker { position: static; }
+.hero-book .book-menu {
+  top: calc(100% + 7px);
+  left: auto;
+  right: 0;
+  min-width: 190px;
+  max-width: 260px;
+  border-color: var(--divider);
+  background: var(--surface);
+}
+
+/* 词表 / 词库管理挪到底部一行 */
+.book-links { justify-content: flex-end; gap: 2px; margin-top: -2px; }

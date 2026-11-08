@@ -354,29 +354,14 @@ async function renderHome() {
     ${topbar()}
     ${installTipHtml()}
     <section class="hero">
-      <div class="tag">本词库进度</div>
-      <div class="big">已练 ${stats.practiced} / ${stats.wordCount} 词</div>
-      <div class="bar"><i style="width:${percent}%"></i></div>
-      <div class="sub">${esc(sub)}</div>
-    </section>
-
-    <div class="home-grid" style="margin-top:16px">
-      <div class="stack">
-        <div class="card">
-          <div class="hint" style="margin-bottom:8px">练习方式</div>
-          <div class="mode-list">${modes}</div>
-        </div>
-
-        <div class="card book-card">
-          <label class="hint" for="bookPick">词库</label>
+      <div class="hero-top">
+        <div class="tag">本词库进度</div>
+        <div class="hero-book">
+          <button type="button" class="hero-pick" id="bookPick" aria-haspopup="listbox" aria-expanded="false">
+            <span class="hero-pick-name">${esc(book.name)}</span>
+            <svg class="book-select-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
           <div class="book-picker" id="bookPicker">
-            <button type="button" class="book-select" id="bookPick" aria-haspopup="listbox" aria-expanded="false">
-              <span class="book-select-main">
-                <span class="book-select-name">${esc(book.name)}</span>
-                <span class="book-select-meta">${book.wordCount} 词${book.blockedCount ? ` · 屏蔽 ${book.blockedCount}` : ''}</span>
-              </span>
-              <svg class="book-select-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-            </button>
             <div class="book-menu" role="listbox" hidden>
               ${books.map((b) => `
                 <button type="button" class="book-option${b.id === book.id ? ' active' : ''}" role="option"
@@ -389,15 +374,36 @@ async function renderHome() {
                 </button>`).join('')}
             </div>
           </div>
-          <div class="row" style="margin-top:10px">
-            <div class="meta"></div>
-            <button class="btn text small" data-action="list">词表</button>
-            <button class="btn text small" data-action="books">词库管理</button>
-          </div>
+        </div>
+      </div>
+      <div class="big">已练 ${stats.practiced} / ${stats.wordCount} 词</div>
+      <div class="bar"><i style="width:${percent}%"></i></div>
+      <div class="sub">${esc(sub)}</div>
+    </section>
+
+    <div class="home-grid" style="margin-top:16px">
+      <div class="stack">
+        <div class="card">
+          <div class="hint" style="margin-bottom:8px">练习方式</div>
+          <div class="mode-list">${modes}</div>
         </div>
       </div>
 
       <div class="stack">
+        <button class="btn block start-btn" data-action="start" ${max ? '' : 'disabled'}>开始练习</button>
+
+        <button class="btn ghost block review-btn" data-action="review" ${reviewTotal ? '' : 'disabled'}>
+          ${reviewTotal
+    ? (due ? `复习 ${due} 个单词` : `复习全部练过的 ${reviewTotal} 个单词`)
+    : '练过之后就能复习'}
+        </button>
+        ${reviewTotal
+    ? `<div class="hint review-hint">
+            ${due ? `今天到期 ${due} 个` : '今天的都复习过了'} · 练过的 ${reviewTotal} 个都能复习
+          </div>`
+
+    : ''}
+
         <div class="card settings start-card">
           <div class="line">
             <div><div class="title">每次题量</div><small>1 – 200 题</small></div>
@@ -418,18 +424,10 @@ async function renderHome() {
           </label>
         </div>
 
-        <button class="btn block start-btn" data-action="start" ${max ? '' : 'disabled'}>开始练习</button>
-
-        <button class="btn ghost block review-btn" data-action="review" ${reviewTotal ? '' : 'disabled'}>
-          ${reviewTotal
-    ? (due ? `复习 ${due} 个单词` : `复习全部练过的 ${reviewTotal} 个单词`)
-    : '练过之后就能复习'}
-        </button>
-        ${reviewTotal
-    ? `<div class="hint review-hint">
-            ${due ? `今天到期 ${due} 个` : '今天的都复习过了'} · 练过的 ${reviewTotal} 个都能复习
-          </div>`
-    : ''}
+        <div class="row book-links">
+          <button class="btn text small" data-action="list">词表</button>
+          <button class="btn text small" data-action="books">词库管理</button>
+        </div>
       </div>
     </div>
     </div>`;
@@ -441,17 +439,18 @@ async function renderHome() {
 function bindBookPicker() {
   const picker = document.getElementById('bookPicker');
   if (!picker) return;
-  const trigger = picker.querySelector('#bookPick');
+  const trigger = document.getElementById('bookPick');
   const menu = picker.querySelector('.book-menu');
+  const wrap = picker.closest('.hero-book') || picker;
   const close = () => {
     menu.hidden = true;
     trigger.setAttribute('aria-expanded', 'false');
-    picker.classList.remove('open');
+    wrap.classList.remove('open');
   };
   const open = () => {
     menu.hidden = false;
     trigger.setAttribute('aria-expanded', 'true');
-    picker.classList.add('open');
+    wrap.classList.add('open');
   };
 
   trigger.addEventListener('click', (event) => {
