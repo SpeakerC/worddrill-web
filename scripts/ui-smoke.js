@@ -136,7 +136,7 @@ async function main() {
     await page.selectOption('#themeSelect', 'auto');
 
     /* ---------- 自动备份三项 ---------- */
-    await page.waitForSelector('#autobackupInput');
+    await page.waitForSelector('#autobackupInput', { state: 'attached' });
     check(await page.isChecked('#autobackupInput'), '自动备份默认应开启');
     await page.fill('#backupIntervalInput', '4');
     await page.dispatchEvent('#backupIntervalInput', 'change');

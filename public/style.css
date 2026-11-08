@@ -324,6 +324,74 @@ select.field:focus { outline: 2px solid rgba(63, 91, 217, 0.25); border-color: v
 .footer-actions { display: flex; gap: 10px; margin-top: 18px; }
 .footer-actions .btn { flex: 1; }
 
+/* ---------- 设置行 / 开关 / 单位输入 ---------- */
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 0;
+}
+
+.setting-row + .setting-row { border-top: 1px solid var(--divider); }
+
+.setting-text { min-width: 0; }
+.setting-text .title { font-weight: 600; font-size: 15px; }
+.setting-text small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.unit-field { display: flex; align-items: center; gap: 8px; flex: none; }
+.unit-field .unit { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.unit-field .input.narrow {
+  width: 76px;
+  height: 40px;
+  padding: 0 8px;
+  text-align: center;
+}
+
+.switch { position: relative; display: inline-flex; flex: none; cursor: pointer; }
+.switch input { position: absolute; width: 0; height: 0; opacity: 0; }
+.switch-track {
+  display: inline-flex;
+  align-items: center;
+  width: 48px;
+  height: 28px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--divider);
+  transition: background 0.18s ease;
+}
+.switch-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(20, 30, 60, 0.25);
+  transition: transform 0.18s ease;
+}
+.switch input:checked + .switch-track { background: var(--brand); }
+.switch input:checked + .switch-track .switch-thumb { transform: translateX(20px); }
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid rgba(63, 91, 217, 0.35);
+  outline-offset: 2px;
+}
+
+.btn-row { display: flex; gap: 10px; }
+.btn-row .btn { flex: 1; }
+
+.btn.danger-text {
+  background: transparent;
+  border-color: transparent;
+  color: var(--wrong);
+}
+.btn.danger-text:hover { background: var(--wrong-bg); }
+
 /* ---------- 练习 ---------- */
 
 .center-col { max-width: 780px; margin: 0 auto; }

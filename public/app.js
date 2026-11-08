@@ -1129,7 +1129,6 @@ async function renderReport() {
 /* ---------- 设置 ---------- */
 
 async function renderSettings() {
-  const info = repo.info();
   const version = (state.about && state.about.version) || repo.VERSION;
   const pref = themePref();
   app.innerHTML = `
@@ -1150,6 +1149,11 @@ async function renderSettings() {
         <div style="margin-top:12px">
           <button class="btn ghost small" data-action="test-tts">试听发音</button>
         </div>
+        <div class="divider"></div>
+        <div class="line" style="padding-bottom:0">
+          <div><div class="title">练习记录</div><small>清空后所有单词重新算「没练过」</small></div>
+          <button class="btn ghost small" data-action="clear-log">清空</button>
+        </div>
       </div>
 
       <div class="section-label">外观</div>
@@ -1162,38 +1166,54 @@ async function renderSettings() {
         </select>
       </div>
 
-      <div class="section-label">数据</div>
-      <div class="card">
-        <div class="hint">词库、星标、错题、打卡和复习进度都保存在这台设备的浏览器里，不上传任何服务器。</div>
-        <div class="footer-actions" style="margin-top:12px">
-          <button class="btn ghost" data-action="export-backup">导出备份</button>
-          <button class="btn ghost" data-action="import-backup">恢复备份</button>
-        </div>
-        <div class="hint" style="margin-top:10px">${esc(storageLine(info))}</div>
-        <input id="backupFile" type="file" accept="application/json,.json" hidden>
-        <div style="margin-top:14px">
-          <button class="btn text small" data-action="clear-log">清空练习记录</button>
-        </div>
-      </div>
-
-      <div class="section-label">自动备份</div>
+      <div class="section-label">数据与备份</div>
       <div class="card settings">
-        <label class="checkbox">
-          <input id="autobackupInput" type="checkbox" ${settings.autoBackupEnabled() ? 'checked' : ''}>
-          启用自动备份（默认开启，关闭后不再定时存快照）
-        </label>
-        <div class="line" style="margin-top:10px">
-          <div><div class="title">备份间隔</div><small>0 表示只在关闭页面前写入，不定时快照</small></div>
-          <input id="backupIntervalInput" class="input narrow" type="number" min="0" max="168" value="${settings.backupIntervalHours()}"> 小时
+        <div class="setting-row" style="padding-top:2px">
+          <div class="setting-text">
+            <div class="title">自动备份</div>
+            <small>按间隔把当前数据存成本地快照，误删或数据异常时可恢复</small>
+          </div>
+          <label class="switch" title="启用自动备份">
+            <input id="autobackupInput" type="checkbox" ${settings.autoBackupEnabled() ? 'checked' : ''}>
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+          </label>
         </div>
-        <div class="line" style="margin-top:8px">
-          <div><div class="title">最多保留</div><small>份自动备份快照</small></div>
-          <input id="backupKeepInput" class="input narrow" type="number" min="1" max="50" value="${settings.backupKeepCount()}"> 份
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <div class="title">备份间隔</div>
+            <small>0 表示只在关闭页面前写入，不定时快照</small>
+          </div>
+          <div class="unit-field">
+            <input id="backupIntervalInput" class="input narrow" type="number" min="0" max="168" value="${settings.backupIntervalHours()}">
+            <span class="unit">小时</span>
+          </div>
         </div>
-        <div style="margin-top:10px">
-          <button class="btn ghost small" data-action="save-autobackup-now">立即保存一次快照</button>
-          <button class="btn text small danger" data-action="clear-backup-cache">清除备份缓存</button>
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <div class="title">保留份数</div>
+            <small>超出的旧快照会自动删除</small>
+          </div>
+          <div class="unit-field">
+            <input id="backupKeepInput" class="input narrow" type="number" min="1" max="50" value="${settings.backupKeepCount()}">
+            <span class="unit">份</span>
+          </div>
         </div>
+
+        <div class="divider"></div>
+
+        <div class="btn-row">
+          <button class="btn ghost small" data-action="export-backup">导出备份</button>
+          <button class="btn ghost small" data-action="import-backup">恢复备份</button>
+        </div>
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn ghost small" data-action="save-autobackup-now">立即存一份快照</button>
+          <button class="btn small danger-text" data-action="clear-backup-cache">清除缓存</button>
+        </div>
+
+        <div class="hint" style="margin-top:12px" id="backupStatus">${esc(backupStatusText())}</div>
+        <input id="backupFile" type="file" accept="application/json,.json" hidden>
       </div>
 
       <div class="section-label">其他</div>
@@ -1219,6 +1239,36 @@ async function renderSettings() {
       backupFile.value = '';
     });
   }
+  syncAutoBackupUI();
+}
+
+/** 自动备份区：关闭开关时灰掉间隔与份数，并显示快照概况。 */
+function syncAutoBackupUI() {
+  const enabled = settings.autoBackupEnabled();
+  for (const id of ['backupIntervalInput', 'backupKeepInput']) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.disabled = !enabled;
+      el.style.opacity = enabled ? '1' : '0.45';
+    }
+  }
+  const status = document.getElementById('backupStatus');
+  if (status) status.textContent = backupStatusText();
+}
+
+function backupStatusText() {
+  const info = repo.info();
+  const snaps = repo.listAutoBackups();
+  const storage = info.persistent
+    ? `已用 ${Math.round(info.usageBytes / 1024)} KB · 保存在本机浏览器，不上传任何服务器`
+    : '浏览器不允许本地存储，本次打开的修改在关闭后会丢失';
+  if (!snaps.length) return `${storage}　·　还没有自动备份快照`;
+  const last = new Date(snaps[0].at);
+  const mm = String(last.getMonth() + 1).padStart(2, '0');
+  const dd = String(last.getDate()).padStart(2, '0');
+  const hh = String(last.getHours()).padStart(2, '0');
+  const mi = String(last.getMinutes()).padStart(2, '0');
+  return `${storage}　·　${snaps.length} 份快照，最近 ${mm}-${dd} ${hh}:${mi}`;
 }
 
 /* ---------- 隐私政策 ---------- */
@@ -1554,7 +1604,8 @@ app.addEventListener('click', async (event) => {
     case 'save-autobackup-now': {
       try {
         const kept = repo.saveAutoBackupNow();
-        toast(`已保存一次自动备份快照，保留最近 ${kept} 份`);
+        syncAutoBackupUI();
+        toast(`已保存一份自动备份快照，当前保留 ${kept} 份`);
       } catch (err) { toast(err.message); }
       break;
     }
@@ -1623,6 +1674,7 @@ app.addEventListener('change', (event) => {
   }
   if (event.target.id === 'autobackupInput') {
     settings.setAutoBackupEnabled(event.target.checked);
+    syncAutoBackupUI();
     toast(event.target.checked ? '已开启自动备份' : '已关闭自动备份');
   }
   if (event.target.id === 'backupIntervalInput') {
