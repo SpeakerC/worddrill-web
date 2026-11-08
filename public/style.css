@@ -1729,9 +1729,9 @@ button, .mode, .opt, .word-row, .drop { -webkit-tap-highlight-color: transparent
   .report-page .page-head { height: 58px; padding: 0; }
 }
 
-/* 首页标题左侧没有返回键，补 50px（38px 按钮 + 12px 间距）占位，
-   让六个页面的标题左边缘落在同一条竖线上 */
-.topbar h1 { padding-left: 50px; }
+/* 首页标题前面没有返回键，不加占位，直接与下方卡片左边缘对齐。
+   其他页标题在返回键右侧，视觉上本来就是分开的两列，不该强行对齐 */
+.topbar h1 { padding-left: 0; }
 
 /* 「已练词汇」标题下的第一块是分段标签或统计条，margin 与别的页对齐到 4px */
 .studied-page > .seg-group,

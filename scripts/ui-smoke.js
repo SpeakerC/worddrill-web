@@ -233,7 +233,7 @@ async function main() {
 
     /* ---------- APK 版本与链接 ---------- */
     const apkHref = await page.getAttribute('a[href*="gitee.com"]', 'href');
-    check(apkHref && apkHref.endsWith('v1.4.3/WordDrill-1.4.3.apk'), `APK 应为 1.4.3，实际 ${apkHref}`);
+    check(apkHref && apkHref.endsWith('v1.4.4/WordDrill-1.4.4.apk'), `APK 应为 1.4.4，实际 ${apkHref}`);
 
     /* ---------- 自动备份三项 ---------- */
     await page.waitForSelector('#autobackupInput', { state: 'attached' });
@@ -335,6 +335,7 @@ main().catch((err) => {
   console.error('✖ 冒烟失败：', err.message);
   process.exit(1);
 });
+
 
 
 
