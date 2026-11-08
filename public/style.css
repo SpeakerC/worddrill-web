@@ -1617,3 +1617,126 @@ button, .mode, .opt, .word-row, .drop { -webkit-tap-highlight-color: transparent
   .home-page .hero { padding: 18px 16px; }
   .report-tile .hero { padding: 15px 16px; }
 }
+
+/* ---------- 太阳 / 月亮 主题开关 ---------- */
+
+.theme-switch {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.theme-track {
+  position: relative;
+  display: block;
+  width: 58px;
+  height: 30px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ffd66b, #ffb347);
+  box-shadow: inset 0 1px 3px rgba(120, 80, 0, 0.22);
+  transition: background 0.38s ease, box-shadow 0.38s ease;
+}
+
+.theme-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(60, 40, 0, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.42s cubic-bezier(0.34, 1.4, 0.5, 1);
+}
+
+.theme-icon {
+  position: absolute;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: opacity 0.3s ease, transform 0.42s cubic-bezier(0.34, 1.4, 0.5, 1);
+}
+
+/* 浅色：太阳在下，月亮旋转藏起 */
+.theme-icon.sun { stroke: #e89b12; opacity: 1; transform: rotate(0deg) scale(1); }
+.theme-icon.moon { stroke: #4a5b8c; opacity: 0; transform: rotate(-90deg) scale(0.5); }
+
+/* 深色：轨道变夜空，月亮转进来，太阳转出去 */
+.theme-switch.is-dark .theme-track {
+  background: linear-gradient(135deg, #38406e, #1e2440);
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+.theme-switch.is-dark .theme-knob { transform: translateX(28px); }
+.theme-switch.is-dark .theme-icon.sun { opacity: 0; transform: rotate(90deg) scale(0.5); }
+.theme-switch.is-dark .theme-icon.moon { opacity: 1; transform: rotate(0deg) scale(1); }
+
+.theme-switch:focus-visible .theme-track {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-soft), inset 0 1px 3px rgba(120, 80, 0, 0.22);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-knob, .theme-icon, .theme-track { transition: none; }
+}
+
+/* ---------- 六个导航页标题行完全一致 ---------- */
+
+/* 「设置」右侧多了开关，「学习报告」右侧多了按钮，
+   标题靠左对齐；用同一套内边距与高度，保证标题位置分毫不差 */
+.topbar,
+.page-head,
+.settings-page .page-head,
+.report-page .page-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 68px;
+  margin: 0 0 4px;
+  padding: 0;
+}
+
+.topbar h1,
+.page-head h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.2px;
+}
+
+/* 首页标题左侧没有返回键，补同样的占位，让六个页面标题左边缘一致 */
+.topbar h1 { padding-left: 0; }
+
+/* 设置页开关靠右 */
+.settings-page .theme-switch { margin-left: auto; }
+
+@media (max-width: 560px) {
+  .topbar, .page-head,
+  .settings-page .page-head,
+  .report-page .page-head { height: 58px; padding: 0; }
+}
+
+/* 首页标题左侧没有返回键，补 50px（38px 按钮 + 12px 间距）占位，
+   让六个页面的标题左边缘落在同一条竖线上 */
+.topbar h1 { padding-left: 50px; }
+
+/* 「已练词汇」标题下的第一块是分段标签或统计条，margin 与别的页对齐到 4px */
+.studied-page > .seg-group,
+.studied-page > .list-meta { margin-top: 4px; }
+
+
+/* 去掉「外观」后设置页在 1280x900 仍超 12px，把行距再收一点 */
+@media (min-width: 901px) {
+  .settings-page .settings-grid { gap: 10px 18px; }
+  .settings-page .card.settings { padding: 15px; }
+  .settings-page .setting-row { padding: 9px 0; }
+}

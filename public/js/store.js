@@ -355,6 +355,10 @@ export class Store {
     const index = this.indexMap(bookId);
     let list = this.visibleWords(bookId);
     if (filter === 'starred') list = list.filter((w) => w.starred);
+    if (filter === 'studied') {
+      const ids = this.studiedIds();
+      list = list.filter((w) => ids.has(w.id));
+    }
     if (q) {
       list = list.filter(
         (w) => w.word.toLowerCase().includes(q) || String(w.meaning).toLowerCase().includes(q),

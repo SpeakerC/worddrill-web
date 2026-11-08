@@ -137,9 +137,9 @@ async function main() {
 
     /* ---------- 错题导出：三个选项都在 ---------- */
     await page.evaluate(() => { location.hash = '#/'; });
-    await page.waitForSelector('[data-action="list-mistakes"]');
-    await page.click('[data-action="list-mistakes"]');
-    await page.waitForTimeout(400);
+    await page.waitForSelector('.hero');
+    await page.click('[data-nav="#/mistakes"]');
+    await page.waitForTimeout(500);
     const exportBtn = await page.$('[data-action="export-mistakes"]');
     if (exportBtn) {
       await exportBtn.click();
@@ -187,9 +187,9 @@ async function main() {
 
     /* ---------- 侧边导航 ---------- */
     const navItems = await page.$$eval('[data-nav]', (els) => els.map((e) => e.getAttribute('href')));
-    check(navItems.length === 3, `侧边导航应有 3 项，实际 ${JSON.stringify(navItems)}`);
+    check(navItems.length === 6, `侧边导航应有 6 项，实际 ${JSON.stringify(navItems)}`);
     check(navItems.includes('#/report') && navItems.includes('#/settings'), '导航应含学习报告与设置');
-    check((await page.$$('.nav-icon')).length === 3, '导航项应有图标');
+    check((await page.$$('.nav-icon')).length === 6, '导航项应有图标');
 
     /* ---------- 学习报告 ---------- */
     await page.click('[data-nav="#/report"]');
@@ -205,21 +205,30 @@ async function main() {
 
     /* ---------- 设置 / 隐私 ---------- */
     await page.evaluate(() => { location.hash = '#/settings'; });
-    await page.waitForSelector('#themeSelect');
-    await page.selectOption('#themeSelect', 'dark');
+    await page.waitForSelector('.theme-switch');
+    await page.click('.theme-switch');
     await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
-    await page.selectOption('#themeSelect', 'auto');
+    check(true, '太阳/月亮开关可切到深色');
+    await page.click('.theme-switch');
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+    check(!(await page.$('#themeSelect')), '设置页已去掉外观下拉');
+    check(!(await bodyText()).includes('练习时朗读单词'), '设置页已去掉练习时朗读单词');
 
     /* ---------- 设置页拼图：备份块不再是整行，其他里有开源许可 ---------- */
     const settingsTiles = await page.evaluate(() => [...document.querySelectorAll('.settings-tile')].map((el) => {
       const label = el.querySelector('.section-label');
       const r = el.getBoundingClientRect();
-      return { label: label ? label.textContent : '', width: Math.round(r.width) };
+      return { label: label ? label.textContent : '', width: Math.round(r.width), top: Math.round(r.top), left: Math.round(r.left) };
     }));
-    check(settingsTiles.length === 4, `设置页应有 4 块拼图，实际 ${settingsTiles.length}`);
+    check(settingsTiles.length === 3, `设置页应有 3 块拼图，实际 ${settingsTiles.length}`);
     const backupTile = settingsTiles.find((t) => t.label === '数据与备份');
+    const learnTile = settingsTiles.find((t) => t.label === '学习');
     check(Boolean(backupTile), '设置页应有「数据与备份」块');
     check(backupTile && backupTile.width < 500, '数据与备份应与其他块同宽，不独占整行');
+    check(
+      learnTile && backupTile && learnTile.top === backupTile.top && learnTile.left !== backupTile.left,
+      '学习与数据备份应在同一行',
+    );
     check(settingsTiles.some((t) => t.label === '其他'), '设置页应有「其他」块');
 
     /* ---------- 自动备份三项 ---------- */
@@ -252,11 +261,11 @@ async function main() {
 
     /* ---------- 关于 ---------- */
     await page.evaluate(() => { location.hash = '#/settings'; });
-    await page.waitForSelector('#themeSelect');
+    await page.waitForSelector('.theme-switch');
     await page.click('[data-action="about"]');
     await page.waitForSelector('.about-card');
     const about = await page.textContent('.about-card');
-    check(about.includes('版本 web-1.14'), '关于页应显示版本');
+    check(about.includes('版本 web-2.0'), '关于页应显示版本');
     check(about.includes('zlt mteacase'), '关于页应显示开发者');
     check(!about.includes('开放源代码许可'), '开源许可应已移出关于弹窗');
     await page.keyboard.press('Escape');
@@ -322,6 +331,7 @@ main().catch((err) => {
   console.error('✖ 冒烟失败：', err.message);
   process.exit(1);
 });
+
 
 
 

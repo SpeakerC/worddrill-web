@@ -123,6 +123,8 @@ async function route() {
     if (name === 'practice') return renderPractice();
     if (name === 'result') return renderResult();
     if (name === 'list') return renderList();
+    if (name === 'starred') { state.listFilter = 'starred'; return renderList(); }
+    if (name === 'mistakes') { state.listFilter = 'mistakes'; return renderList(); }
     if (name === 'books') return renderBooks();
     if (name === 'import') return renderImport();
     if (name === 'studied') return renderStudied();
@@ -151,12 +153,18 @@ function topbar() {
 
 const NAV_ITEMS = [
   { hash: '#/', label: '单词练习', icon: 'book' },
+  { hash: '#/starred', label: '星标词汇', icon: 'star' },
+  { hash: '#/studied', label: '已练词汇', icon: 'check' },
+  { hash: '#/mistakes', label: '错题本', icon: 'wrong' },
   { hash: '#/report', label: '学习报告', icon: 'chart' },
   { hash: '#/settings', label: '设置', icon: 'gear' },
 ];
 
 const NAV_ICONS = {
   book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5V5.5Z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H19"/>',
+  star: '<path d="M12 3.4l2.7 5.5 6 .9-4.35 4.24 1.03 6L12 17.2l-5.38 2.84 1.03-6L3.3 9.8l6-.9L12 3.4Z"/>',
+  check: '<circle cx="12" cy="12" r="8.4"/><path d="M8.2 12.2l2.6 2.6 5-5.2"/>',
+  wrong: '<circle cx="12" cy="12" r="8.4"/><path d="M9.2 9.2l5.6 5.6M14.8 9.2l-5.6 5.6"/>',
   chart: '<path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="12" width="3" height="5" rx="1"/><rect x="12.5" y="8.5" width="3" height="8.5" rx="1"/><rect x="18" y="5" width="3" height="12" rx="1"/>',
   gear: '<circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v0a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z"/>',
 };
@@ -165,6 +173,9 @@ const NAV_ICONS = {
 function navKeyFor(name) {
   if (name === 'report') return '#/report';
   if (name === 'settings' || name === 'privacy') return '#/settings';
+  if (name === 'starred') return '#/starred';
+  if (name === 'studied') return '#/studied';
+  if (name === 'mistakes') return '#/mistakes';
   return '#/';
 }
 
@@ -203,6 +214,26 @@ function installTipHtml() {
       <span>页面已支持移动端部署，详情请查看设置</span>
       <button class="icon-btn" data-action="dismiss-install" title="不再提示">✕</button>
     </div>`;
+}
+
+/** 太阳 / 月亮 主题开关，和「设置」标题同一行。 */
+function themeToggleHtml(pref) {
+  const dark = document.documentElement.dataset.theme === 'dark';
+  return `
+    <button class="theme-switch${dark ? ' is-dark' : ''}" data-action="toggle-theme" type="button"
+            role="switch" aria-checked="${dark}" title="${dark ? '切换到浅色' : '切换到深色'}">
+      <span class="theme-track">
+        <span class="theme-knob">
+          <svg class="theme-icon sun" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="4.2"/>
+            <path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/>
+          </svg>
+          <svg class="theme-icon moon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20.5 14.4A8.6 8.6 0 0 1 9.6 3.5a8.7 8.7 0 1 0 10.9 10.9Z"/>
+          </svg>
+        </span>
+      </span>
+    </button>`;
 }
 
 function pageHead(title, extra = '', backHash = '#/', navPage = false) {
@@ -265,8 +296,8 @@ async function renderHome() {
   }).join('');
 
   app.innerHTML = `
-    ${topbar()}
     <div class="center-col wide home-page">
+    ${topbar()}
     ${installTipHtml()}
     <section class="hero">
       <div class="tag">本词库进度</div>
@@ -343,12 +374,6 @@ async function renderHome() {
             ${due ? `今天到期 ${due} 个` : '今天的都复习过了'} · 练过的 ${reviewTotal} 个都能复习
           </div>`
     : ''}
-
-        <div class="footer-actions">
-          <button class="btn ghost" data-action="list-starred">星标词汇</button>
-          <button class="btn ghost" data-action="list-mistakes">错题本</button>
-          <button class="btn ghost" data-action="studied">已学过</button>
-        </div>
 
         <div style="text-align:center">
           <button class="btn text small" data-action="clear-log">清空练习记录</button>
@@ -803,7 +828,11 @@ async function renderList() {
   state.listLimit = LIST_PAGE;
   const data = await loadListData(book, filter);
   state.listData = data;
-  const title = filter === 'blocked' ? '已屏蔽单词' : (filter === 'mistakes' ? '错题本' : '词表');
+  const NAV_FILTERS = { starred: '星标词汇', mistakes: '错题本' };
+  const isNavPage = Boolean(NAV_FILTERS[filter]);
+  const title = filter === 'blocked'
+    ? '已屏蔽单词'
+    : (NAV_FILTERS[filter] || '词表');
   const isMistakes = filter === 'mistakes';
 
   const sortTabs = isMistakes ? `
@@ -819,7 +848,8 @@ async function renderList() {
         ${filter === 'blocked' ? '<button class="btn text small" data-action="show-all">返回词表</button>' : ''}
         ${filter === 'all' && !book.builtin ? `<button class="btn text small" data-action="append">追加单词</button>` : ''}
         ${filter === 'blocked' && data.words.length ? '<button class="btn text small" data-action="unblock-all">全部恢复</button>' : ''}
-        ${isMistakes && data.words.length ? '<button class="btn text small" data-action="export-mistakes">导出</button><button class="btn text small danger-text" data-action="clear-mistakes">一键清空</button>' : ''}`)}
+        ${isMistakes && data.words.length ? '<button class="btn text small" data-action="export-mistakes">导出</button><button class="btn text small danger-text" data-action="clear-mistakes">一键清空</button>' : ''}`,
+    '#/', isNavPage)}
       ${sortTabs}
       <div class="toolbar-row">
         <input id="searchInput" class="search" placeholder="${isMistakes ? '搜索错题单词或释义' : '搜索单词或释义'}" value="${esc(state.search)}">
@@ -1033,8 +1063,8 @@ async function renderStudied() {
     </button>`).join('');
 
   app.innerHTML = `
-    <div class="center-col wide">
-      ${pageHead('已学过', '<button class="btn small ghost" data-action="home">返回</button>')}
+    <div class="center-col wide studied-page">
+      ${pageHead('已练词汇', '', '#/', true)}
       ${c.all ? `<div class="seg-group">${tabs}</div>
       <div class="toolbar-row">
         <input id="searchInput" class="search" placeholder="搜索单词或释义" value="${esc(state.search)}">
@@ -1524,7 +1554,7 @@ async function renderSettings() {
   const pref = themePref();
   app.innerHTML = `
     <div class="center-col wide settings-page">
-      ${pageHead('设置', '', '#/', true)}
+      ${pageHead('设置', themeToggleHtml(pref), '#/', true)}
 
       <div class="settings-grid">
         <section class="settings-tile">
@@ -1562,71 +1592,6 @@ async function renderSettings() {
                 <small>清空后所有单词重新算「没练过」</small>
               </div>
               <button class="btn ghost small danger-text" data-action="clear-log">清空</button>
-            </div>
-          </div>
-        </section>
-
-        <section class="settings-tile">
-          <div class="section-label">外观</div>
-          <div class="card settings">
-            <div class="setting-row" style="padding-top:0">
-              <div class="setting-text">
-                <div class="title">深色模式</div>
-                <small>跟随系统或手动选</small>
-              </div>
-              <select id="themeSelect" class="field compact">
-                <option value="auto" ${pref === 'auto' ? 'selected' : ''}>跟随系统</option>
-                <option value="light" ${pref === 'light' ? 'selected' : ''}>浅色</option>
-                <option value="dark" ${pref === 'dark' ? 'selected' : ''}>深色</option>
-              </select>
-            </div>
-            <div class="setting-row" style="padding-bottom:0">
-              <div class="setting-text">
-                <div class="title">练习时朗读单词</div>
-                <small>与「学习」里的开关联动</small>
-              </div>
-              <span class="hint" id="ttsState">${settings.ttsEnabled() ? '已开启' : '已关闭'}</span>
-            </div>
-          </div>
-        </section>
-
-        <section class="settings-tile">
-          <div class="section-label">其他</div>
-          <div class="card settings">
-            <div class="setting-row" style="padding-top:0">
-              <div class="setting-text">
-                <div class="title">Android 版 App</div>
-                <small>下载 APK 安装包（1.3.5）</small>
-              </div>
-              <a class="btn small ghost" href="https://gitee.com/MTeaCase/worddrill/releases/download/v1.3.5/WordDrill-1.3.5.apk" target="_blank" rel="noopener">下载</a>
-            </div>
-            <div class="setting-row">
-              <div class="setting-text">
-                <div class="title">iOS 安装教程</div>
-                <small>把网页加到主屏幕的步骤</small>
-              </div>
-              <a class="btn small ghost" href="https://github.com/SpeakerC/worddrill-web/releases/tag/ios-1.6" target="_blank" rel="noopener">查看教程</a>
-            </div>
-            <div class="setting-row">
-              <div class="setting-text">
-                <div class="title">隐私政策</div>
-                <small>数据存在哪、何时联网</small>
-              </div>
-              <button class="btn small ghost" data-action="privacy">查看</button>
-            </div>
-            <div class="setting-row">
-              <div class="setting-text">
-                <div class="title">开放源代码许可</div>
-                <small>GPLv3，词库来自开源项目</small>
-              </div>
-              <a class="btn small ghost" href="https://github.com/SpeakerC/worddrill-web/blob/main/LICENSE" target="_blank" rel="noopener">查看</a>
-            </div>
-            <div class="setting-row" style="padding-bottom:0">
-              <div class="setting-text">
-                <div class="title">关于</div>
-                <small>版本 ${esc(version)}</small>
-              </div>
-              <button class="btn small ghost" data-action="about">查看</button>
             </div>
           </div>
         </section>
@@ -1680,6 +1645,47 @@ async function renderSettings() {
             <input id="backupFile" type="file" accept="application/json,.json" hidden>
           </div>
         </section>
+        <section class="settings-tile">
+          <div class="section-label">其他</div>
+          <div class="card settings">
+            <div class="setting-row" style="padding-top:0">
+              <div class="setting-text">
+                <div class="title">Android 版 App</div>
+                <small>下载 APK 安装包（1.4.2）</small>
+              </div>
+              <a class="btn small ghost" href="https://gitee.com/MTeaCase/worddrill/releases/download/v1.4.2/WordDrill-1.4.2.apk" target="_blank" rel="noopener">下载</a>
+            </div>
+            <div class="setting-row">
+              <div class="setting-text">
+                <div class="title">iOS 安装教程</div>
+                <small>把网页加到主屏幕的步骤</small>
+              </div>
+              <a class="btn small ghost" href="https://github.com/SpeakerC/worddrill-web/releases/tag/ios-1.6" target="_blank" rel="noopener">查看教程</a>
+            </div>
+            <div class="setting-row">
+              <div class="setting-text">
+                <div class="title">隐私政策</div>
+                <small>数据存在哪、何时联网</small>
+              </div>
+              <button class="btn small ghost" data-action="privacy">查看</button>
+            </div>
+            <div class="setting-row">
+              <div class="setting-text">
+                <div class="title">开放源代码许可</div>
+                <small>GPLv3，词库来自开源项目</small>
+              </div>
+              <a class="btn small ghost" href="https://github.com/SpeakerC/worddrill-web/blob/main/LICENSE" target="_blank" rel="noopener">查看</a>
+            </div>
+            <div class="setting-row" style="padding-bottom:0">
+              <div class="setting-text">
+                <div class="title">关于</div>
+                <small>版本 ${esc(version)}</small>
+              </div>
+              <button class="btn small ghost" data-action="about">查看</button>
+            </div>
+          </div>
+        </section>
+
       </div>
     </div>`;
 
@@ -2028,6 +2034,15 @@ app.addEventListener('click', async (event) => {
     case 'set-goal':
       await askGoal();
       break;
+    case 'toggle-theme': {
+      const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      setThemePref(next);
+      const on = next === 'dark';
+      target.classList.toggle('is-dark', on);
+      target.setAttribute('aria-checked', String(on));
+      target.title = on ? '切换到浅色' : '切换到深色';
+      break;
+    }
     case 'test-tts': {
       const error = speak('hello, this is a test');
       toast(error || '已调用浏览器语音，能听到声音说明正常');
@@ -2051,14 +2066,6 @@ app.addEventListener('click', async (event) => {
       break;
     case 'list':
       state.listFilter = 'all';
-      location.hash = '#/list';
-      break;
-    case 'list-starred':
-      state.listFilter = 'starred';
-      location.hash = '#/list';
-      break;
-    case 'list-mistakes':
-      state.listFilter = 'mistakes';
       location.hash = '#/list';
       break;
     case 'books':
@@ -2153,11 +2160,6 @@ app.addEventListener('click', async (event) => {
       } catch (err) { toast(err.message); }
       break;
     }
-    case 'studied':
-      state.studiedFilter = 'all';
-      state.search = '';
-      location.hash = '#/studied';
-      break;
     case 'studied-filter':
       state.studiedFilter = target.dataset.filter || 'all';
       state.search = '';
@@ -2270,11 +2272,6 @@ app.addEventListener('change', (event) => {
     if (event.target.checked) speakWord('hello');
     toast(event.target.checked ? '已开启朗读' : '已关闭朗读');
   }
-  if (event.target.id === 'themeSelect') {
-    setThemePref(event.target.value);
-    const label = { auto: '跟随系统', light: '浅色', dark: '深色' }[event.target.value] || '跟随系统';
-    toast(`外观：${label}`);
-  }
   if (event.target.id === 'autobackupInput') {
     settings.setAutoBackupEnabled(event.target.checked);
     syncAutoBackupUI();
@@ -2359,6 +2356,7 @@ boot().catch((err) => {
     <h2>启动失败</h2><p>${esc(err.message)}</p>
     <p class="hint">确认浏览器允许本地存储后刷新重试。</p></div>`;
 });
+
 
 
 
