@@ -191,6 +191,25 @@ async function main() {
     check(navItems.includes('#/report') && navItems.includes('#/settings'), '导航应含学习报告与设置');
     check((await page.$$('.nav-icon')).length === 6, '导航项应有图标');
 
+    /* ---------- 移动端三点导航 ---------- */
+    check(
+      await page.evaluate(() => getComputedStyle(document.querySelector('.topbar .nav-toggle')).display === 'none'),
+      '桌面端三点按钮应隐藏',
+    );
+    const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    const mp = await mobile.newPage();
+    await mp.goto(server.base, { waitUntil: 'networkidle' });
+    await mp.waitForSelector('.hero');
+    await mp.click('.nav-toggle');
+    await mp.waitForSelector('.nav-drawer');
+    const drawerItems = await mp.$$eval('.nav-sheet .nav-item', (els) => els.length);
+    check(drawerItems === 6, `手机端抽屉应有 6 项，实际 ${drawerItems}`);
+    await mp.click('.nav-sheet [data-nav="#/settings"]');
+    await mp.waitForTimeout(300);
+    check((await mp.evaluate(() => location.hash)) === '#/settings', '手机端可从抽屉跳到设置');
+    check(!(await mp.$('.nav-drawer')), '跳转后抽屉应关闭');
+    await mobile.close();
+
     /* ---------- 学习报告 ---------- */
     await page.click('[data-nav="#/report"]');
     await page.waitForSelector('.stat-grid');
@@ -335,6 +354,7 @@ main().catch((err) => {
   console.error('✖ 冒烟失败：', err.message);
   process.exit(1);
 });
+
 
 
 

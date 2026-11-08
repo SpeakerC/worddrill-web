@@ -142,9 +142,21 @@ window.addEventListener('hashchange', () => { route(); });
 
 /* ---------- 通用片段 ---------- */
 
+/** 移动端导航开关：标题左侧三个点。桌面端由 CSS 隐藏。 */
+function navToggleHtml() {
+  return `
+    <button class="icon-btn nav-toggle" data-action="open-nav" type="button"
+            title="导航" aria-label="打开导航" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="5.4" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="18.6" r="1.7"/>
+      </svg>
+    </button>`;
+}
+
 function topbar() {
   return `
     <header class="topbar">
+      ${navToggleHtml()}
       <h1>单词练习</h1>
     </header>`;
 }
@@ -205,8 +217,49 @@ function renderSidenav(name) {
   });
 }
 
-/** iOS Safari 没有安装按钮，只能用一句提示教用户加到主屏幕。 */
-function installTipHtml() {
+/* ---------- 移动端导航（标题左侧三点展开） ---------- */
+
+/** 打开手机端导航抽屉。桌面端不显示三点按钮，走不到这里。 */
+function openNavDrawer() {
+  if (document.querySelector('.nav-drawer')) return;
+  const active = navKeyFor(location.hash.replace(/^#\/?/, '').split('/')[0]);
+  const overlay = document.createElement('div');
+  overlay.className = 'nav-drawer';
+  overlay.innerHTML = `
+    <div class="nav-sheet" role="dialog" aria-label="导航">
+      <div class="nav-sheet-head">
+        <img class="sidenav-logo" src="./icon.png" alt="">
+        <span>单词练习</span>
+        <button class="icon-btn" data-action="close-nav" title="关闭" aria-label="关闭导航">✕</button>
+      </div>
+      <div class="nav-sheet-items">
+        ${NAV_ITEMS.map((item, i) => `
+          <a class="nav-item${item.hash === active ? ' active' : ''}" href="${item.hash}" data-nav="${item.hash}" style="--i:${i}">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">${NAV_ICONS[item.icon]}</svg>
+            <span class="nav-label">${item.label}</span>
+          </a>`).join('')}
+      </div>
+    </div>`;
+
+  const close = () => {
+    overlay.classList.add('closing');
+    setTimeout(() => overlay.remove(), 180);
+    document.querySelectorAll('[data-action="open-nav"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (event) => { if (event.key === 'Escape') close(); };
+
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay || event.target.closest('[data-action="close-nav"]')) close();
+    const link = event.target.closest('[data-nav]');
+    if (link) close();
+  });
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(overlay);
+  document.querySelectorAll('[data-action="open-nav"]').forEach((b) => b.setAttribute('aria-expanded', 'true'));
+}
+
+/** iOS Safari 没有安装按钮，只能用一句提示教用户加到主屏幕。 */function installTipHtml() {
   if (isStandalone() || prefs.get('worddrill.installTip') === 'off') return '';
   if (!isIos() && !isAndroid()) return '';
   return `
@@ -239,6 +292,7 @@ function themeToggleHtml(pref) {
 function pageHead(title, extra = '', backHash = '#/', navPage = false) {
   return `
     <div class="page-head"${navPage ? ' data-navpage' : ''}>
+      ${navToggleHtml()}
       <button class="icon-btn" data-action="back" data-back="${backHash}" title="返回">←</button>
       <h2>${esc(title)}</h2>
       <div class="grow"></div>
@@ -2015,6 +2069,9 @@ app.addEventListener('click', async (event) => {
       break;
     case 'back':
       location.hash = target.dataset.back || '#/';
+      break;
+    case 'open-nav':
+      openNavDrawer();
       break;
     case 'about':
       showAbout();
