@@ -205,7 +205,7 @@ async function renderHome() {
   const percent = stats.wordCount ? Math.round((stats.practiced / stats.wordCount) * 100) : 0;
   const sub = max
     ? `索引 1 – ${max} · 还有 ${Math.max(stats.wordCount - stats.practiced, 0)} 词未练${stats.blockedCount ? ` · 屏蔽 ${stats.blockedCount} 个` : ''}`
-    : (stats.blockedCount ? `${stats.blockedCount} 个单词都被屏蔽了，取消屏蔽后才会出现` : '这个词库还没有单词');
+    : (stats.blockedCount ? `${stats.blockedCount} 个单词都被屏蔽了，恢复后才会出现` : '这个词库还没有单词');
 
   const bookOptions = state.books
     .map((b) => `<option value="${b.id}" ${b.id === state.bookId ? 'selected' : ''}>${esc(b.name)}（${b.wordCount} 词）</option>`)
@@ -723,7 +723,7 @@ async function renderList() {
       <div class="footer-actions" style="margin-top:16px">
         ${filter === 'blocked' ? '' : `<button class="btn block" data-action="practice-list" ${data.words.length ? '' : 'disabled'}>练习这些单词</button>`}
       </div>
-      ${isMistakes && data.words.length ? '<div class="hint" style="text-align:center;margin-top:10px">答对 2 次后自动移出 · 也可以长按某一行手动移出</div>' : ''}
+      ${isMistakes && data.words.length ? '<div class="hint" style="text-align:center;margin-top:10px">连对 2 次自动移出，也可以长按移出</div>' : ''}
     </div>`;
 
   const search = document.getElementById('searchInput');
@@ -763,7 +763,7 @@ function bindLongPress() {
       const id = Number(element.dataset.longpress);
       const name = element.dataset.word || '';
       element.classList.add('pressing');
-      const ok = await confirmDialog('移出错题本？', `「${name}」会从错题本里移除，练习记录和复习排期不受影响。`, '移出');
+      const ok = await confirmDialog('移出错题本？', `只移出错题本，练习记录和复习排期不变。`, '移出');
       if (element.isConnected) element.classList.remove('pressing');
       if (!ok) return;
       try {
@@ -960,7 +960,7 @@ function studiedMeta(filter, data) {
   if (!data.counts.all) return '这个词库还没有练过的词，先去练一轮吧';
   if (!data.words.length) return '没有符合条件的单词';
   const label = { all: '练过的词', unmastered: '还没掌握', mastered: '已掌握', forgetting: '易忘' }[filter] || '';
-  return `${label} ${data.words.length} 个 · 按该复习的排在前面`;
+  return `${label} ${data.words.length} 个 · 快到期的在前`;
 }
 
 function studiedRowsHtml(words) {
@@ -1011,8 +1011,8 @@ async function renderBooks() {
 }
 
 function storageLine(info) {
-  if (!info.persistent) return '浏览器不允许本地存储，本次打开的修改在关闭后会丢失';
-  return `已用 ${formatSize(info.usageBytes)} · 保存在本机浏览器，不上传任何服务器`;
+  if (!info.persistent) return '浏览器不允许本地存储，本次修改在关闭后会丢失';
+  return `已用 ${formatSize(info.usageBytes)} · 保存在本机，不上传`;
 }
 
 /** 字节数说成人话：不足 1MB 用 KB，否则用 MB。 */
@@ -1048,7 +1048,7 @@ async function restoreBackup(file) {
     toast('读取文件失败');
     return;
   }
-  const ok = await confirmDialog('恢复备份？', '当前所有词库、星标、错题会被文件里的内容覆盖，且无法撤销。', '覆盖');
+  const ok = await confirmDialog('恢复备份？', '现有词库、星标、错题都会被覆盖，无法撤销。', '覆盖');
   if (!ok) return;
   try {
     const result = repo.restoreText(text);
@@ -1166,7 +1166,7 @@ function showPreview(data) {
   if (!preview) return;
   preview.hidden = false;
   if (!data.entries.length) {
-    preview.textContent = '没有解析到单词。请确认内容是 Markdown 表格（| 英文 | 词性 | 汉语 |）。';
+    preview.textContent = '没解析到单词，确认是 Markdown 表格（| 英文 | 词性 | 汉语 |）。';
     return;
   }
   const sample = data.entries.slice(0, 5)
@@ -1235,8 +1235,8 @@ async function renderReport() {
   const lastKey = summary.days.length ? summary.days[summary.days.length - 1].date : '';
 
   const todayHint = summary.todayAnswered >= goal
-    ? '今天的目标已经完成，继续保持'
-    : (summary.todayAnswered === 0 ? '今天还没开始，先来 10 道题？' : `还差 ${goal - summary.todayAnswered} 题完成今日目标`);
+    ? '今天的目标完成了'
+    : (summary.todayAnswered === 0 ? '今天还没开始，先练几题' : `还差 ${goal - summary.todayAnswered} 题完成今日目标`);
 
   const chart = summary.days.map((day) => {
     const height = Math.round((day.answered / maxDay) * 100);
@@ -1357,7 +1357,7 @@ async function renderReport() {
                 <b>${esc(item.word.word)}</b>
                 <span>${esc(item.word.pos ? `${item.word.pos} ${item.word.meaning}` : item.word.meaning)}</span>
                 <em>错 ${item.wrong} 次</em>
-              </div>`).join('')}</div>` : '<div class="hint">还没有错题，继续保持</div>'}
+              </div>`).join('')}</div>` : '<div class="hint">还没有错题</div>'}
           </div>
         </section>
 
@@ -1419,7 +1419,7 @@ async function renderSettings() {
             <div class="setting-row" style="padding-bottom:0">
               <div class="setting-text">
                 <div class="title">试听发音</div>
-                <small>检查浏览器语音是否正常</small>
+                <small>测试浏览器语音</small>
               </div>
               <button class="btn ghost small" data-action="test-tts">试听</button>
             </div>
@@ -1440,7 +1440,7 @@ async function renderSettings() {
             <div class="setting-row" style="padding-top:0">
               <div class="setting-text">
                 <div class="title">深色模式</div>
-                <small>跟随系统或手动指定</small>
+                <small>跟随系统或手动选</small>
               </div>
               <select id="themeSelect" class="field compact">
                 <option value="auto" ${pref === 'auto' ? 'selected' : ''}>跟随系统</option>
@@ -1451,7 +1451,7 @@ async function renderSettings() {
             <div class="setting-row" style="padding-bottom:0">
               <div class="setting-text">
                 <div class="title">练习时朗读单词</div>
-                <small>已在「学习」里设置，这里同步显示</small>
+                <small>与「学习」里的开关联动</small>
               </div>
               <span class="hint" id="ttsState">${settings.ttsEnabled() ? '已开启' : '已关闭'}</span>
             </div>
@@ -1471,21 +1471,21 @@ async function renderSettings() {
             <div class="setting-row">
               <div class="setting-text">
                 <div class="title">iOS 安装教程</div>
-                <small>用描述文件把网页加到主屏幕</small>
+                <small>把网页加到主屏幕的步骤</small>
               </div>
               <a class="btn small ghost" href="https://github.com/SpeakerC/worddrill-web/releases/tag/ios-1.6" target="_blank" rel="noopener">查看教程</a>
             </div>
             <div class="setting-row">
               <div class="setting-text">
                 <div class="title">隐私政策</div>
-                <small>会存哪些数据、什么时候联网</small>
+                <small>数据存在哪、何时联网</small>
               </div>
               <button class="btn small ghost" data-action="privacy">查看</button>
             </div>
             <div class="setting-row">
               <div class="setting-text">
                 <div class="title">开放源代码许可</div>
-                <small>MIT 协议，词库来自开源项目</small>
+                <small>GPLv3，词库来自开源项目</small>
               </div>
               <a class="btn small ghost" href="https://github.com/SpeakerC/worddrill-web/blob/main/LICENSE" target="_blank" rel="noopener">查看</a>
             </div>
@@ -1505,7 +1505,7 @@ async function renderSettings() {
             <div class="setting-row" style="padding-top:0">
               <div class="setting-text">
                 <div class="title">自动备份</div>
-                <small>按间隔把当前数据存成本地快照，误删或数据异常时可恢复</small>
+                <small>定时把数据存成本地快照，误删时可恢复</small>
               </div>
               <label class="switch" title="启用自动备份">
                 <input id="autobackupInput" type="checkbox" ${settings.autoBackupEnabled() ? 'checked' : ''}>
@@ -1516,7 +1516,7 @@ async function renderSettings() {
             <div class="setting-row">
               <div class="setting-text">
                 <div class="title">备份间隔</div>
-                <small>0 表示只在关闭页面前写入，不定时快照</small>
+                <small>0 表示只在关闭页面时写一份</small>
               </div>
               <div class="unit-field">
                 <input id="backupIntervalInput" class="input narrow" type="number" min="0" max="168" value="${settings.backupIntervalHours()}">
@@ -1588,15 +1588,15 @@ function backupStatusText() {
   const info = repo.info();
   const snaps = repo.listAutoBackups();
   const storage = info.persistent
-    ? `已用 ${Math.round(info.usageBytes / 1024)} KB · 保存在本机浏览器，不上传任何服务器`
-    : '浏览器不允许本地存储，本次打开的修改在关闭后会丢失';
-  if (!snaps.length) return `${storage}　·　还没有自动备份快照`;
+    ? `已用 ${formatSize(info.usageBytes)} · 保存在本机，不上传`
+    : '浏览器不允许本地存储，本次修改在关闭后会丢失';
+  if (!snaps.length) return `${storage}　·　还没有快照`;
   const last = new Date(snaps[0].at);
   const mm = String(last.getMonth() + 1).padStart(2, '0');
   const dd = String(last.getDate()).padStart(2, '0');
   const hh = String(last.getHours()).padStart(2, '0');
   const mi = String(last.getMinutes()).padStart(2, '0');
-  return `${storage}　·　${snaps.length} 份快照，最近 ${mm}-${dd} ${hh}:${mi}`;
+  return `${storage}　·　${snaps.length} 份，最近 ${mm}-${dd} ${hh}:${mi}`;
 }
 
 /* ---------- 隐私政策 ---------- */
@@ -1957,7 +1957,7 @@ app.addEventListener('click', async (event) => {
       break;
     case 'unblock-all': {
       const book = currentBook();
-      const ok = await confirmDialog('恢复全部屏蔽单词？', `会把「${book.name}」里被屏蔽的单词全部恢复。`, '全部恢复');
+      const ok = await confirmDialog('恢复全部屏蔽单词？', `恢复「${book.name}」里所有被屏蔽的单词。`, '全部恢复');
       if (!ok) return;
       try {
         repo.unblockAll(book.id);
@@ -2009,7 +2009,7 @@ app.addEventListener('click', async (event) => {
     }
     case 'clear-mistakes': {
       const book = currentBook();
-      const ok = await confirmDialog('清空错题本？', `会把「${book.name}」的错题记录全部删除，星标不受影响。`, '清空');
+      const ok = await confirmDialog('清空错题本？', `清空「${book.name}」的错题记录，星标不受影响。`, '清空');
       if (!ok) return;
       try {
         repo.clearMistakes(book.id);
@@ -2019,7 +2019,7 @@ app.addEventListener('click', async (event) => {
       break;
     }
     case 'clear-log': {
-      const ok = await confirmDialog('清空练习记录？', '清空后所有单词都会重新被视为「没练过」，复习排期一并清空；星标和错题不受影响。', '清空');
+      const ok = await confirmDialog('清空练习记录？', '所有单词重新算「没练过」，复习排期一并清空。星标和错题不受影响。', '清空');
       if (!ok) return;
       try {
         repo.clearLog();
@@ -2038,7 +2038,7 @@ app.addEventListener('click', async (event) => {
       break;
     }
     case 'clear-backup-cache': {
-      const ok = await confirmDialog('清除备份缓存？', '会删除全部自动备份快照和 Service Worker 离线缓存，学习数据不受影响。建议先导出一份备份。', '清除');
+      const ok = await confirmDialog('清除备份缓存？', '删除全部自动快照和离线缓存，学习数据不受影响。建议先导出备份。', '清除');
       if (!ok) return;
       try {
         const removed = repo.clearAutoBackups();
@@ -2182,8 +2182,12 @@ window.worddrill = { repo };
 boot().catch((err) => {
   app.innerHTML = `<div class="card" style="margin-top:60px">
     <h2>启动失败</h2><p>${esc(err.message)}</p>
-    <p class="hint">请确认浏览器允许本地存储，然后刷新页面重试。</p></div>`;
+    <p class="hint">确认浏览器允许本地存储后刷新重试。</p></div>`;
 });
+
+
+
+
 
 
 
