@@ -1422,8 +1422,9 @@ button, .mode, .opt, .word-row, .drop { -webkit-tap-highlight-color: transparent
   margin: 0 0 4px;
 }
 
-/* 桌面端有侧边导航，学习报告与设置不需要返回键 */
-@media (min-width: 901px) {
+/* 只有「鼠标 + 能悬停」的桌面才隐藏返回键。
+   手机 / 平板不管是竖屏还是横屏，一律保留返回键，否则没有退路 */
+@media (min-width: 901px) and (hover: hover) and (pointer: fine) {
   .page-head[data-navpage] .icon-btn[data-action="back"] { display: none; }
 }
 
@@ -1477,7 +1478,10 @@ button, .mode, .opt, .word-row, .drop { -webkit-tap-highlight-color: transparent
   .app.no-sidenav ~ .sidenav,
   body:has(.app.no-sidenav) .sidenav { visibility: hidden; opacity: 0; }
   body:has(.app.no-sidenav) { padding-left: 0; }
-  .page-head[data-navpage] .icon-btn[data-action="back"] { display: none; }
+  /* 中间宽度只在桌面隐藏；触屏设备照常保留返回键 */
+  @media (hover: hover) and (pointer: fine) {
+    .page-head[data-navpage] .icon-btn[data-action="back"] { display: none; }
+  }
 }
 
 /* 原来的 224px 收窄到 196px，侧边留白本来就多余 */
@@ -1740,3 +1744,4 @@ button, .mode, .opt, .word-row, .drop { -webkit-tap-highlight-color: transparent
   .settings-page .card.settings { padding: 15px; }
   .settings-page .setting-row { padding: 9px 0; }
 }
+

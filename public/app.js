@@ -1651,9 +1651,9 @@ async function renderSettings() {
             <div class="setting-row" style="padding-top:0">
               <div class="setting-text">
                 <div class="title">Android 版 App</div>
-                <small>下载 APK 安装包（1.4.2）</small>
+                <small>下载 APK 安装包（1.4.3）</small>
               </div>
-              <a class="btn small ghost" href="https://gitee.com/MTeaCase/worddrill/releases/download/v1.4.2/WordDrill-1.4.2.apk" target="_blank" rel="noopener">下载</a>
+              <a class="btn small ghost" href="https://gitee.com/MTeaCase/worddrill/releases/download/v1.4.3/WordDrill-1.4.3.apk" target="_blank" rel="noopener">下载</a>
             </div>
             <div class="setting-row">
               <div class="setting-text">
@@ -2356,6 +2356,7 @@ boot().catch((err) => {
     <h2>启动失败</h2><p>${esc(err.message)}</p>
     <p class="hint">确认浏览器允许本地存储后刷新重试。</p></div>`;
 });
+
 
 
 
