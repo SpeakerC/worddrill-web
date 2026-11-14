@@ -92,9 +92,9 @@ export function setBackupKeepCount(count) {
 
 /* ---------- 实验性功能（默认关闭） ---------- */
 
-/** 干扰项是否每次从最像的前 9 个词里重新抽；关闭时同一词每次选项固定。 */
+/** 干扰项是否每次从最像的前 9 个词里重新抽；默认开启，同一词不再固定。 */
 export function varyDistractors() {
-  return read(VARY_DISTRACTORS_KEY, 'off') === 'on';
+  return read(VARY_DISTRACTORS_KEY, 'on') !== 'off';
 }
 
 export function setVaryDistractors(enabled) {

@@ -319,7 +319,7 @@ async function main() {
     );
 
     /* ---------- 实验性功能开关 ---------- */
-    check(!(await page.isChecked('#varyDistractorsInput')), '干扰项变化默认应关闭');
+    check(await page.isChecked('#varyDistractorsInput'), '干扰项变化默认应开启');
     check(!(await page.isChecked('#revealMeaningsInput')), '其他选项释义默认应关闭');
     await page.evaluate(() => document.getElementById('varyDistractorsInput').click());
     await page.evaluate(() => document.getElementById('revealMeaningsInput').click());
@@ -327,7 +327,7 @@ async function main() {
       vary: localStorage.getItem('worddrill.varyDistractors'),
       reveal: localStorage.getItem('worddrill.revealMeanings'),
     }));
-    check(experimentPrefs.vary === 'on' && experimentPrefs.reveal === 'on',
+    check(experimentPrefs.vary === 'off' && experimentPrefs.reveal === 'on',
       `实验性开关应保存，实际 ${JSON.stringify(experimentPrefs)}`);
     await page.evaluate(() => document.getElementById('varyDistractorsInput').click());
     await page.evaluate(() => document.getElementById('revealMeaningsInput').click());
