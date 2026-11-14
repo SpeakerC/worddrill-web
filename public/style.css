@@ -782,6 +782,11 @@ textarea.input {
 
 .settings-page { padding-bottom: 8px; }
 
+/* 设置页「重要」分类：整行，放在拼图上方 */
+.settings-important { margin-bottom: 16px; }
+.settings-important .section-label { color: var(--wrong); }
+.settings-important .setting-row .btn { flex: none; white-space: nowrap; }
+
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

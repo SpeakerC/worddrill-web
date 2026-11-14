@@ -246,6 +246,49 @@ async function main() {
     check(!(await page.$('#themeSelect')), '设置页已去掉外观下拉');
     check(!(await bodyText()).includes('练习时朗读单词'), '设置页已去掉练习时朗读单词');
 
+    /* ---------- 重要：重新部署默认词库（两次确认都可以取消） ---------- */
+    check(Boolean(await page.$('.settings-important')), '设置页应有「重要」分类');
+    check((await page.textContent('.settings-important')).includes('重新部署默认词库'), '重要分类应含重新部署入口');
+    check(Boolean(await page.$('[data-action="redeploy-builtins"]')), '应有重新部署按钮');
+
+    await page.click('[data-action="redeploy-builtins"]');
+    await page.waitForSelector('.modal [data-ok]');
+    check((await page.textContent('.modal')).includes('重新部署默认词库'), '第一次确认文案');
+    await page.click('.modal [data-close]');
+    await page.waitForSelector('.modal', { state: 'detached' });
+
+    await page.click('[data-action="redeploy-builtins"]');
+    await page.waitForSelector('.modal [data-ok]');
+    await page.click('.modal [data-ok]');
+    await page.waitForFunction(() => document.querySelector('.modal')?.innerText.includes('再次确认'));
+    await page.click('.modal [data-close]');
+    await page.waitForSelector('.modal', { state: 'detached' });
+    check(true, '两次确认都可以取消');
+
+    // 真正执行一次：两次确认后重建，词表数量和设置页都还在
+    await page.click('[data-action="redeploy-builtins"]');
+    await page.waitForSelector('.modal [data-ok]');
+    await page.click('.modal [data-ok]');
+    await page.waitForFunction(() => document.querySelector('.modal')?.innerText.includes('再次确认'));
+    await page.click('.modal [data-ok]');
+    await page.waitForFunction(
+      () => document.body.innerText.includes('已重建'),
+      null,
+      { timeout: 20000 },
+    );
+    const redeployBooks = await page.evaluate(
+      () => window.worddrill.repo.bootstrap().books.map((b) => [b.name, b.wordCount]),
+    );
+    check(
+      redeployBooks.some(([name, count]) => name === '高中 3500 词' && count === 3846),
+      `重新部署后 3500 应为 3846 词，实际 ${JSON.stringify(redeployBooks)}`,
+    );
+    check(
+      redeployBooks.some(([name, count]) => name === '大学英语四级' && count === 4544),
+      `重新部署后四级应为 4544 词，实际 ${JSON.stringify(redeployBooks)}`,
+    );
+    check(Boolean(await page.$('.settings-important')), '重建后设置页应还在');
+
     /* ---------- 设置页拼图：备份块不再是整行，其他里有开源许可 ---------- */
     const settingsTiles = await page.evaluate(() => [...document.querySelectorAll('.settings-tile')].map((el) => {
       const label = el.querySelector('.section-label');

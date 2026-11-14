@@ -1701,6 +1701,19 @@ async function renderSettings() {
     <div class="center-col wide settings-page">
       ${pageHead('设置', themeToggleHtml(pref), '#/', true)}
 
+      <section class="settings-important">
+        <div class="section-label">重要</div>
+        <div class="card settings">
+          <div class="setting-row" style="padding:0">
+            <div class="setting-text">
+              <div class="title">重新部署默认词库</div>
+              <small>用最新内置词表重建「高中 3500 词」和「大学英语四级」：补缺失词、修正坏条目。星标、错题、复习记录尽量保留；导入的自建词库不受影响。</small>
+            </div>
+            <button class="btn small danger-text" data-action="redeploy-builtins">重新部署</button>
+          </div>
+        </div>
+      </section>
+
       <div class="settings-grid">
         <section class="settings-tile">
           <div class="section-label">学习</div>
@@ -2371,6 +2384,33 @@ app.addEventListener('click', async (event) => {
         else await renderHome();
         toast('已清空练习记录');
       } catch (err) { toast(err.message); }
+      break;
+    }
+    case 'redeploy-builtins': {
+      const first = await confirmDialog(
+        '重新部署默认词库？',
+        '会用线上最新的内置词表重建「高中 3500 词」和「大学英语四级」：补缺失词、修正坏条目。星标、错题、复习记录会尽量保留；导入的自建词库不受影响。',
+        '继续',
+      );
+      if (!first) return;
+      const second = await confirmDialog(
+        '再次确认：重新部署？',
+        '内置词库的单词表会被替换，建议先导出备份。这个操作无法撤销。',
+        '确认重新部署',
+      );
+      if (!second) return;
+      try {
+        toast('正在重新部署默认词库…');
+        const result = await repo.redeployBuiltins();
+        await reloadBooks();
+        state.start = null;
+        state.end = null;
+        await renderSettings();
+        const names = result.books.map((b) => b.name).join('、');
+        toast(`已重建 ${names}：补 ${result.added} 词、删 ${result.removed} 词、合并 ${result.merged} 个进度`);
+      } catch (err) {
+        toast(err.message);
+      }
       break;
     }
     case 'save-autobackup-now': {

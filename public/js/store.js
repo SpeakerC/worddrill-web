@@ -39,6 +39,20 @@ function maxId(list) {
   return list.reduce((max, item) => Math.max(max, item.id || 0), 0);
 }
 
+/** 新旧词头对齐用的归一化：大小写、星号、重音撇号、双连字符、空格。 */
+function normWordCase(word) {
+  return String(word ?? '')
+    .replace(/\*/g, '')
+    .replace(/[ˈˌ]/g, "'")
+    .replace(/--+/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normWordKey(word) {
+  return normWordCase(word).toLowerCase();
+}
+
 /** 兼容旧备份 / 手工改过的数据：补全缺失字段与自增 id。 */
 export function normalizeDb(raw) {
   const db = { ...emptyDb(), ...(raw || {}) };
@@ -842,6 +856,248 @@ export class Store {
   clearPracticeLog() {
     this.db.practiceLog = [];
     this.change('log');
+  }
+
+  // ---------- 重建内置词库 ----------
+
+  /**
+   * 把一个旧词条的学习记录并到新词条里（v] → sort、ad. → either）。
+   * 星标/屏蔽/已掌握取并集；练习记录累加；错题取最多；复习排期留更靠后的那条。
+   */
+  mergeWordProgress(fromId, toId) {
+    if (fromId === toId) return false;
+    const from = this.db.words.find((w) => w.id === fromId);
+    const to = this.db.words.find((w) => w.id === toId);
+    if (!from || !to) return false;
+
+    to.starred = Boolean(to.starred || from.starred);
+    to.blocked = Boolean(to.blocked || from.blocked);
+    to.learned = Boolean(to.learned || from.learned);
+
+    const fromLog = this.db.practiceLog.find((p) => p.wordId === fromId);
+    if (fromLog) {
+      const toLog = this.db.practiceLog.find((p) => p.wordId === toId);
+      if (toLog) {
+        toLog.times = (toLog.times || 0) + (fromLog.times || 0);
+        toLog.lastAt = Math.max(toLog.lastAt || 0, fromLog.lastAt || 0);
+        this.db.practiceLog = this.db.practiceLog.filter((p) => p !== fromLog);
+      } else {
+        fromLog.wordId = toId;
+      }
+    }
+
+    const fromMistake = this.db.mistakes.find((m) => m.wordId === fromId);
+    if (fromMistake) {
+      const toMistake = this.db.mistakes.find((m) => m.wordId === toId);
+      if (toMistake) {
+        toMistake.wrong = (toMistake.wrong || 0) + (fromMistake.wrong || 0);
+        toMistake.streak = Math.max(toMistake.streak || 0, fromMistake.streak || 0);
+        toMistake.lastAt = Math.max(toMistake.lastAt || 0, fromMistake.lastAt || 0);
+        toMistake.mode = toMistake.mode || fromMistake.mode;
+        this.db.mistakes = this.db.mistakes.filter((m) => m !== fromMistake);
+      } else {
+        fromMistake.wordId = toId;
+      }
+    }
+
+    const fromReview = this.db.review.find((r) => r.wordId === fromId);
+    if (fromReview) {
+      const toReview = this.db.review.find((r) => r.wordId === toId);
+      if (toReview) {
+        const better = (fromReview.level || 0) > (toReview.level || 0)
+          || ((fromReview.level || 0) === (toReview.level || 0)
+            && (fromReview.dueAt || 0) < (toReview.dueAt || 0));
+        if (better) {
+          toReview.level = fromReview.level || 0;
+          toReview.dueAt = fromReview.dueAt || 0;
+          toReview.lastAt = Math.max(toReview.lastAt || 0, fromReview.lastAt || 0);
+          toReview.lapses = Math.max(toReview.lapses || 0, fromReview.lapses || 0);
+        }
+        this.db.review = this.db.review.filter((r) => r !== fromReview);
+      } else {
+        fromReview.wordId = toId;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * 用最新的内置词表重建内置词库（设置页「重新部署默认词库」）。
+   *
+   * - 按词头对齐新旧词条，保留 id，所以星标/错题/练习记录/复习排期都跟着走；
+   * - renames 把旧坏词头映射到新词（v] → sort），进度直接并过去；
+   * - 新词表里没有的旧词连记录一起删；导入的自建词库完全不动。
+   *
+   * @param {Array<{seedId:string,name:string,entries:Array<{w:string,pos?:string,m:string}>}>} builtins
+   * @param {Record<string,string>} renames
+   */
+  redeployBuiltinBooks(builtins, renames = {}) {
+    const specs = (Array.isArray(builtins) ? builtins : [])
+      .filter((b) => b && b.seedId && Array.isArray(b.entries) && b.entries.length);
+    if (!specs.length) return { books: [], added: 0, removed: 0, merged: 0, renamed: 0 };
+
+    const now = Date.now();
+    const renameByOld = new Map();
+    for (const [from, to] of Object.entries(renames || {})) {
+      renameByOld.set(normWordKey(from), String(to));
+    }
+
+    // 先确定要重建的书（缺了就建），不在清单里的内置书保持原样
+    const plan = specs.map((spec) => {
+      let book = this.db.books.find(
+        (b) => b.builtin && (b.seedId === spec.seedId || (!b.seedId && b.name === spec.name)),
+      );
+      if (!book) {
+        book = {
+          id: this.db.nextBookId++,
+          name: spec.name,
+          builtin: true,
+          seedId: spec.seedId,
+          createdAt: now,
+        };
+        this.db.books.push(book);
+      } else if (!book.seedId) {
+        book.seedId = spec.seedId;
+      }
+      return { spec, book };
+    });
+
+    const targetBookIds = new Set(plan.map((item) => item.book.id));
+    const untouched = this.db.words.filter((w) => !targetBookIds.has(w.bookId));
+    const rebuilt = [];
+    const removeIds = new Set();
+    const stats = { books: [], added: 0, removed: 0, merged: 0, renamed: 0 };
+
+    for (const { spec, book } of plan) {
+      const existing = this.db.words.filter((w) => w.bookId === book.id);
+      const before = existing.length;
+      const existingIds = new Set(existing.map((w) => w.id));
+
+      const byExact = new Map();
+      const byNorm = new Map();
+      for (const word of existing) {
+        if (!byExact.has(word.word)) byExact.set(word.word, []);
+        byExact.get(word.word).push(word);
+        // 保留大小写：May（月份）和 may（情态动词）是两条不同的词
+        const key = normWordCase(word.word);
+        if (!byNorm.has(key)) byNorm.set(key, []);
+        byNorm.get(key).push(word);
+      }
+
+      const used = new Set();
+      const pending = new Map();
+      for (const word of existing) {
+        const targetWord = renameByOld.get(normWordKey(word.word));
+        if (!targetWord) continue;
+        const key = normWordKey(targetWord);
+        if (!pending.has(key)) pending.set(key, []);
+        pending.get(key).push(word);
+      }
+
+      const next = [];
+      let added = 0;
+      let renamed = 0;
+      let merged = 0;
+
+      const take = (wordText) => {
+        const exact = byExact.get(wordText) || [];
+        const hit = exact.find((w) => !used.has(w.id));
+        if (hit) {
+          used.add(hit.id);
+          return hit;
+        }
+        const norm = byNorm.get(normWordCase(wordText)) || [];
+        const normHit = norm.find((w) => !used.has(w.id));
+        if (normHit) {
+          used.add(normHit.id);
+          return normHit;
+        }
+        return null;
+      };
+
+      spec.entries.forEach((entry, index) => {
+        const wordText = String(entry.w || '').trim();
+        if (!wordText) return;
+        const key = normWordKey(wordText);
+        let target = take(wordText);
+        const pendingList = pending.get(key) || [];
+
+        if (!target) {
+          // 没有同名词条，但旧坏词头可以改名复用（v] → sort），id 和进度都保留
+          const old = pendingList.find((w) => !used.has(w.id));
+          if (old) {
+            used.add(old.id);
+            old.word = wordText;
+            target = old;
+            renamed += 1;
+            for (const other of pendingList) {
+              if (other === old || used.has(other.id)) continue;
+              this.mergeWordProgress(other.id, old.id);
+              used.add(other.id);
+              removeIds.add(other.id);
+              merged += 1;
+            }
+          }
+        } else {
+          // 同名词条已经存在，把旧坏词头的进度并进来（ad. → either）
+          for (const other of pendingList) {
+            if (used.has(other.id) || other.id === target.id) continue;
+            this.mergeWordProgress(other.id, target.id);
+            used.add(other.id);
+            removeIds.add(other.id);
+            merged += 1;
+          }
+        }
+
+        if (!target) {
+          target = {
+            id: this.db.nextWordId++,
+            bookId: book.id,
+            ord: index + 1,
+            word: wordText,
+            pos: String(entry.pos || ''),
+            meaning: String(entry.m || ''),
+            starred: false,
+            blocked: false,
+            learned: false,
+            createdAt: now,
+          };
+          added += 1;
+        } else if (target.word !== wordText) {
+          target.word = wordText;
+          if (existingIds.has(target.id)) renamed += 1;
+        }
+
+        target.ord = index + 1;
+        target.pos = String(entry.pos || '');
+        target.meaning = String(entry.m || '');
+        target.starred = Boolean(target.starred);
+        target.blocked = Boolean(target.blocked);
+        target.learned = Boolean(target.learned);
+        next.push(target);
+      });
+
+      const kept = next.filter((w) => existingIds.has(w.id)).length;
+      const removed = Math.max(0, before - kept - merged);
+      for (const word of existing) {
+        if (!used.has(word.id)) removeIds.add(word.id);
+      }
+      stats.books.push({ name: book.name, before, after: next.length, added, removed, merged, renamed });
+      stats.added += added;
+      stats.removed += removed;
+      stats.merged += merged;
+      stats.renamed += renamed;
+      rebuilt.push(...next);
+    }
+
+    this.db.words = [...untouched, ...rebuilt];
+    if (removeIds.size) {
+      this.db.practiceLog = this.db.practiceLog.filter((p) => !removeIds.has(p.wordId));
+      this.db.mistakes = this.db.mistakes.filter((m) => !removeIds.has(m.wordId));
+      this.db.review = this.db.review.filter((r) => !removeIds.has(r.wordId));
+    }
+    this.change('all');
+    return stats;
   }
 
   // ---------- 导入 ----------

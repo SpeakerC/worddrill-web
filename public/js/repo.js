@@ -74,12 +74,54 @@ const BUILTIN_BOOKS = [
   },
 ];
 
+/**
+ * 旧版内置词表里被写坏的词头 → 修好后的词头。
+ * 「重新部署默认词库」靠它把 v] 的星标/错题/复习排期并到 sort 上，而不是直接删掉。
+ */
+const WORD_RENAMES = {
+  'v]': 'sort',
+  afte: 'after',
+  cance: 'cancer',
+  energ: 'energy',
+  federa: 'federal',
+  kilometr: 'kilometre',
+  woo: 'wool',
+  shyv: 'shy',
+  spaghettiv: 'spaghetti',
+  tiresomev: 'tiresome',
+  'roller skatingn': 'roller skating',
+  commericia: 'commercial',
+  Tibeta: 'Tibetan',
+  'ad.': 'either',
+  'does doesnˈt': 'does',
+  'oˈclock': "o'clock",
+  'soft sɔft;': 'soft',
+  'turning n': 'turning',
+  'department -store': 'department store',
+  'English -speaking': 'English-speaking',
+  'waiting -room': 'waiting room',
+  'washing -machine': 'washing machine',
+  'zebra -crossing': 'zebra crossing',
+  'pencil- sharpener': 'pencil sharpener',
+  'best--seller': 'best-seller',
+  'spoken man/ woman': 'spokesman / spokeswoman',
+  'statesman/ woman': 'statesman / stateswoman',
+  'telephone-booth / telephone-box': 'telephone booth / telephone box',
+  'p.m./pm, P.M. /PM': 'p.m.',
+  'could modal': 'could',
+  'may modal': 'may',
+  'must modal': 'must',
+};
+
 /** 逐个取回内置词表；某一本取不到就跳过，不影响其他词库播种。 */
-async function loadBuiltins() {
+async function loadBuiltins({ fresh = false } = {}) {
   const out = [];
   for (const book of BUILTIN_BOOKS) {
     try {
-      const res = await fetch(book.url);
+      const url = new URL(book.url);
+      // 重新部署时绕开 Service Worker 的缓存优先：加时间戳就是新 URL
+      if (fresh) url.searchParams.set('v', String(Date.now()));
+      const res = await fetch(url);
       if (!res.ok) continue;
       const entries = await res.json();
       if (Array.isArray(entries) && entries.length) {
@@ -159,6 +201,26 @@ export function builtinInfo() {
     latest: BUILTIN_VERSION,
     books: s.books().filter((b) => b.builtin),
   };
+}
+
+/**
+ * 重新部署默认词库：强制拉最新词表，重建内置书并尽量保留进度。
+ * 设置页「重要 → 重新部署默认词库」调用；导入的自建词库不受影响。
+ */
+export async function redeployBuiltins() {
+  const s = requireStore();
+  const builtins = await loadBuiltins({ fresh: true });
+  if (builtins.length < BUILTIN_BOOKS.length) {
+    throw new Error('内置词表加载不完整，请联网后再试');
+  }
+  let snapshot = 0;
+  try {
+    snapshot = saveAutoBackupNow();
+  } catch {
+    // 快照失败不挡住重建
+  }
+  const stats = s.redeployBuiltinBooks(builtins, WORD_RENAMES);
+  return { ...stats, snapshot };
 }
 
 export function bootstrap() {
