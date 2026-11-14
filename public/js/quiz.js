@@ -1,5 +1,7 @@
 /** 出题逻辑，与 Android 版 QuizEngine 一致。纯函数，浏览器与 Node 共用。 */
 
+import { pickDistractors } from './confuse.js';
+
 export const OPTION_COUNT = 4;
 
 export const MODES = {
@@ -50,50 +52,41 @@ export function shuffled(list, rng = Math.random) {
 }
 
 export function meaningOf(word) {
-  return word.pos ? `${word.pos} ${word.meaning}` : word.meaning;
-}
-
-function buildOptions(correct, allWords, selector, rng) {
-  const seen = new Set();
-  const candidates = [];
-  for (const word of allWords) {
-    const value = selector(word);
-    if (!value || value === correct || seen.has(value)) continue;
-    seen.add(value);
-    candidates.push(value);
-  }
-  const distractors = candidates.length <= OPTION_COUNT - 1
-    ? candidates
-    : shuffled(candidates, rng).slice(0, OPTION_COUNT - 1);
-  return shuffled([...distractors, correct], rng);
+  const meaning = word.meaning ?? word.m ?? '';
+  return word.pos ? `${word.pos} ${meaning}` : meaning;
 }
 
 export function makeItem(word, allWords, mode, rng = Math.random) {
+  const text = word.word ?? word.w;
   if (mode === 'spell' || mode === 'listen') {
     const listen = mode === 'listen';
     return {
       wordId: word.id,
-      word: word.word,
+      word: text,
       meaning: meaningOf(word),
       starred: Boolean(word.starred),
       // 听音拼写不显示中文，题面只放一句提示
       prompt: listen ? '点这里再听一遍' : meaningOf(word),
-      answer: word.word,
+      answer: text,
       options: [],
       correctOption: -1,
       spell: true,
       listen,
-      hint: hint(word.word),
+      hint: hint(text),
     };
   }
-  const correct = mode === 'en_zh' ? meaningOf(word) : word.word;
-  const options = buildOptions(correct, allWords, mode === 'en_zh' ? meaningOf : (w) => w.word, rng);
+  const correct = mode === 'en_zh' ? meaningOf(word) : text;
+  const distractors = pickDistractors(word, allWords, mode, { rng, count: OPTION_COUNT - 1 });
+  const values = distractors.map((entry) => (mode === 'en_zh'
+    ? meaningOf(entry)
+    : String(entry.word ?? entry.w)));
+  const options = shuffled([...new Set([correct, ...values])], rng);
   return {
     wordId: word.id,
-    word: word.word,
+    word: text,
     meaning: meaningOf(word),
     starred: Boolean(word.starred),
-    prompt: mode === 'en_zh' ? word.word : meaningOf(word),
+    prompt: mode === 'en_zh' ? text : meaningOf(word),
     answer: correct,
     options,
     correctOption: options.indexOf(correct),
@@ -113,5 +106,10 @@ export function buildItems(words, allWords, count, mode, rng = Math.random) {
     picked.push(word);
     if (picked.length >= count) break;
   }
-  return picked.map((word) => makeItem(word, allWords, mode, rng));
+  // 干扰项只从本题涉及的词库里取：新练习 = 当前词库；跨库复习 = 涉及的几本
+  const bookIds = new Set(picked.map((word) => word.bookId).filter((id) => id != null));
+  const pool = Array.isArray(allWords)
+    ? (bookIds.size ? allWords.filter((w) => bookIds.has(w.bookId)) : allWords)
+    : [];
+  return picked.map((word) => makeItem(word, pool, mode, rng));
 }

@@ -3,6 +3,17 @@ import assert from 'node:assert';
 
 import { hint, isCorrect, buildItems, OPTION_COUNT, normalize } from '../public/js/quiz.js';
 
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 const words = [
   { id: 1, word: 'apple', pos: 'n.', meaning: '苹果', starred: false },
   { id: 2, word: 'pear', pos: 'n.', meaning: '梨', starred: false },
@@ -45,4 +56,41 @@ test('默写题：有答案与提示，无选项', () => {
   assert.equal(item.options.length, 0);
   assert.equal(item.spell, true);
   assert.equal(item.hint, 'p _ _ _ / o _ _');
+});
+
+test('选择题：干扰项走混淆算法，同义派生词被排除', () => {
+  const pool = [
+    { id: 1, word: 'adapt', pos: 'v.', meaning: '适应' },
+    { id: 2, word: 'adopt', pos: 'v.', meaning: '采用' },
+    { id: 3, word: 'adept', pos: 'a.', meaning: '熟练的' },
+    { id: 4, word: 'adaptation', pos: 'n.', meaning: '适应，改编本' },
+    { id: 5, word: 'apple', pos: 'n.', meaning: '苹果' },
+  ];
+  const [en] = buildItems([pool[0]], pool, 1, 'en_zh', seeded(5));
+  assert.equal(en.options.length, OPTION_COUNT);
+  assert.ok(en.options.includes('v. 适应'));
+  assert.ok(!en.options.includes('n. 适应，改编本'), '同义的 adaptation 不能当干扰项');
+
+  const [zh] = buildItems([pool[0]], pool, 1, 'zh_en', seeded(5));
+  assert.equal(zh.options.length, OPTION_COUNT);
+  assert.ok(zh.options.includes('adapt'));
+  assert.ok(!zh.options.includes('adaptation'), '同义的 adaptation 不能当干扰项');
+});
+
+test('选择题：干扰项只从本题涉及的词库取', () => {
+  const book1 = [
+    { id: 1, bookId: 1, word: 'adapt', pos: 'v.', meaning: '适应' },
+    { id: 2, bookId: 1, word: 'adopt', pos: 'v.', meaning: '采用' },
+    { id: 3, bookId: 1, word: 'adept', pos: 'a.', meaning: '熟练的' },
+    { id: 4, bookId: 1, word: 'apple', pos: 'n.', meaning: '苹果' },
+  ];
+  const book2 = [
+    { id: 9, bookId: 2, word: 'adapter', pos: 'n.', meaning: '适配器' },
+    { id: 10, bookId: 2, word: 'adeptly', pos: 'ad.', meaning: '熟练地' },
+  ];
+  const [item] = buildItems([book1[0]], [...book1, ...book2], 1, 'zh_en', seeded(1));
+  assert.equal(item.options.length, OPTION_COUNT);
+  assert.ok(item.options.includes('adapt'));
+  assert.ok(!item.options.includes('adapter'));
+  assert.ok(!item.options.includes('adeptly'));
 });

@@ -198,6 +198,12 @@ export function isAmbiguous(a, b) {
   if (!ca || !cb) return false;
   if (ca === cb) return true;
   if (ca.length >= 2 && cb.length >= 2 && (ca.includes(cb) || cb.includes(ca))) return true;
+  // 短释义只要共用两个实词，基本就是同义/近义（效果 vs 结果、种类 vs 种种、适应 vs 适应改编本）
+  const charsA = new Set(ca);
+  const charsB = new Set(cb);
+  let shared = 0;
+  for (const ch of charsA) if (charsB.has(ch)) shared += 1;
+  if (shared >= 2 && Math.min(charsA.size, charsB.size) <= 8) return true;
   return glossScore(a, b) >= 0.6;
 }
 
@@ -214,32 +220,6 @@ export function isValidEntry(entry) {
   if (!entry || typeof entry !== 'object') return false;
   if (!isValidWord(wordOf(entry))) return false;
   return coreGloss(meaningOf(entry)).length > 0;
-}
-
-function weightOf(kind, score) {
-  if (kind === 'gloss') {
-    // 目标相似度 0.35：越接近越容易被抽中，但不会只取最高的
-    return 1 / (0.05 + Math.abs(score - 0.35)) ** 2;
-  }
-  return Math.max(0.01, score) ** 2;
-}
-
-function weightedSample(list, count, weightFn, rng) {
-  const pool = [...list];
-  const picked = [];
-  while (picked.length < count && pool.length) {
-    const weights = pool.map((item) => Math.max(1e-9, weightFn(item)));
-    const total = weights.reduce((sum, n) => sum + n, 0);
-    let target = rng() * total;
-    let index = 0;
-    for (; index < pool.length; index += 1) {
-      target -= weights[index];
-      if (target <= 0) break;
-    }
-    if (index >= pool.length) index = pool.length - 1;
-    picked.push(pool.splice(index, 1)[0]);
-  }
-  return picked;
 }
 
 function optionKey(mode, entry) {
@@ -263,11 +243,11 @@ function canTake(mode, entry, taken) {
  * @param {object} correct 正确词条，需有 word/meaning（或 w/m）与 pos
  * @param {object[]} pool 候选池（同词库，已排除屏蔽词）
  * @param {'en_zh'|'zh_en'} mode 看英选汉 / 看汉选英
- * @param {{count?:number, rng?:()=>number, difficulty?:'easy'|'medium'|'hard'}} options
+ * @param {{count?:number}} options
  * @returns {object[]} 最多 count 个干扰项，不含正确答案
  */
 export function pickDistractors(correct, pool, mode = 'en_zh', options = {}) {
-  const { count = 3, rng = Math.random, difficulty = 'medium' } = options;
+  const { count = 3 } = options;
   if (!correct || !Array.isArray(pool) || (mode !== 'en_zh' && mode !== 'zh_en')) return [];
   if (count <= 0) return [];
 
@@ -276,33 +256,25 @@ export function pickDistractors(correct, pool, mode = 'en_zh', options = {}) {
   const correctMeaning = meaningOf(correct);
   if (!correctWord || !isValidEntry(correct)) return [];
 
-  // 硬过滤：本题、同词、坏数据、同义/释义重合
-  const candidates = pool.filter((entry) => {
+  // 先只做廉价过滤：本题、同词、坏数据；同义判定留到候选真正被选中时再做
+  const basic = pool.filter((entry) => {
     if (!entry || entry === correct) return false;
     if (correctId != null && idOf(entry) === correctId) return false;
-    if (normalizeWord(wordOf(entry)) === correctWord) return false;
-    if (!isValidEntry(entry)) return false;
-    if (isAmbiguous(correctMeaning, meaningOf(entry))) return false;
-    return true;
+    const entryWord = normalizeWord(wordOf(entry));
+    if (entryWord === correctWord) return false;
+    return isValidEntry(entry);
   });
-  if (!candidates.length) return [];
+  if (!basic.length) return [];
 
-  // 形近候选（同时要求词性不完全冲突）
+  const correctLen = wordOf(correct).length;
   const ortho = [];
-  for (const entry of candidates) {
+  for (const entry of basic) {
+    if (Math.abs(wordOf(entry).length - correctLen) > 4) continue;
     const score = orthoScore(correct, entry);
-    if (score >= 0.4 && posMatch(correct.pos, entry.pos) > 0) {
-      ortho.push({ entry, score });
-    }
+    if (score >= 0.4) ortho.push({ entry, score });
   }
   ortho.sort((a, b) => b.score - a.score);
-
-  // 形近权重：easy 偏不相似，hard 偏相似
-  const orthoWeight = (item) => {
-    if (difficulty === 'easy') return Math.max(0.05, 1 - item.score);
-    if (difficulty === 'hard') return Math.max(0.01, item.score) ** 3;
-    return weightOf('ortho', item.score);
-  };
+  const topOrtho = ortho.slice(0, Math.max(9, count * 3));
 
   const picked = [];
   const taken = new Map();
@@ -314,44 +286,54 @@ export function pickDistractors(correct, pool, mode = 'en_zh', options = {}) {
     return true;
   };
 
-  // 看英选汉：2 个形近词的释义 + 1 个释义相近但不同义的词
-  if (mode === 'en_zh') {
-    const orthoPicked = weightedSample(
-      ortho.filter((item) => !isAmbiguous(correctMeaning, meaningOf(item.entry))),
-      Math.min(2, count),
-      orthoWeight,
-      rng,
-    );
-    for (const item of orthoPicked) take(item.entry);
+  // 同义/词族守卫：只对进入前 9 的形近候选做，避免每题把 3800 个词全算一遍释义
+  const safe = (entry) => {
+    if (isAmbiguous(correctMeaning, meaningOf(entry))) return false;
+    if (sameFamily(correctWord, normalizeWord(wordOf(entry)))
+      && glossScore(correctMeaning, meaningOf(entry)) >= 0.2) return false;
+    return true;
+  };
 
-    if (picked.length < count) {
-      const glossCandidates = candidates
-        .filter((entry) => {
-          if (normalizeWord(wordOf(entry)) === correctWord) return false;
-          const score = glossScore(correctMeaning, meaningOf(entry));
-          return score >= 0.2 && score <= 0.5 && !isAmbiguous(correctMeaning, meaningOf(entry));
-        })
-        .map((entry) => ({ entry, score: glossScore(correctMeaning, meaningOf(entry)) }))
-        .sort((a, b) => Math.abs(a.score - 0.35) - Math.abs(b.score - 0.35));
-      const glossPicked = weightedSample(glossCandidates, 1, (item) => weightOf('gloss', item.score), rng);
-      for (const item of glossPicked) take(item.entry);
-    }
-  } else {
-    // 看汉选英：全部用形近词
-    const orthoPicked = weightedSample(
-      ortho.filter((item) => !isAmbiguous(correctMeaning, meaningOf(item.entry))),
-      count,
-      orthoWeight,
-      rng,
-    );
-    for (const item of orthoPicked) take(item.entry);
+  const safeOrtho = topOrtho.filter((item) => safe(item.entry));
+  const orthoTarget = mode === 'en_zh' ? Math.min(2, count) : count;
+  for (const item of safeOrtho) {
+    if (picked.length >= orthoTarget) break;
+    take(item.entry);
   }
 
-  // 兜底：同词性 + 同首字母 / 同长度，最后任意合法词
+  // 看英选汉：再补 1 个释义相近但不同义的词
+  if (mode === 'en_zh' && picked.length < count) {
+    const ca = charSet(coreGloss(correctMeaning));
+    let best = null;
+    let bestDist = Infinity;
+    for (const entry of basic) {
+      const cb = coreGloss(meaningOf(entry));
+      if (!cb) continue;
+      const charsB = charSet(cb);
+      let shared = 0;
+      for (const ch of ca) {
+        if (charsB.has(ch)) {
+          shared += 1;
+          if (shared >= 2) break;
+        }
+      }
+      if (!shared) continue;
+      if (!safe(entry)) continue;
+      const score = glossScore(correctMeaning, meaningOf(entry));
+      if (score < 0.2 || score > 0.5) continue;
+      const dist = Math.abs(score - 0.35);
+      if (dist < bestDist) {
+        best = entry;
+        bestDist = dist;
+      }
+    }
+    if (best) take(best);
+  }
+
+  // 兜底：同词性 + 同首字母 / 同长度，最后任意合法词；同样要过同义守卫
   if (picked.length < count) {
-    const rest = candidates
-      .filter((entry) => normalizeWord(wordOf(entry)) !== correctWord)
-      .filter((entry) => ![...taken.values()].includes(entry))
+    const safeCandidates = basic
+      .filter(safe)
       .sort((a, b) => {
         const posA = posMatch(correct.pos, a.pos);
         const posB = posMatch(correct.pos, b.pos);
@@ -359,9 +341,9 @@ export function pickDistractors(correct, pool, mode = 'en_zh', options = {}) {
         const firstA = wordOf(a)[0]?.toLowerCase() === wordOf(correct)[0]?.toLowerCase() ? 1 : 0;
         const firstB = wordOf(b)[0]?.toLowerCase() === wordOf(correct)[0]?.toLowerCase() ? 1 : 0;
         if (firstA !== firstB) return firstB - firstA;
-        return Math.abs(wordOf(a).length - wordOf(correct).length) - Math.abs(wordOf(b).length - wordOf(correct).length);
+        return Math.abs(wordOf(a).length - correctLen) - Math.abs(wordOf(b).length - correctLen);
       });
-    for (const entry of rest) {
+    for (const entry of safeCandidates) {
       if (picked.length >= count) break;
       take(entry);
     }
