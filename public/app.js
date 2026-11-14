@@ -2484,7 +2484,7 @@ document.addEventListener('keydown', (event) => {
 async function registerServiceWorker() {
   if (!('serviceWorker' in navigator) || location.protocol === 'file:') return;
   try {
-    const registration = await navigator.serviceWorker.register(new URL('sw.js', import.meta.url), { scope: './' });
+    const registration = await navigator.serviceWorker.register(new URL('sw.js', import.meta.url), { scope: './', updateViaCache: 'none' });
     registration.addEventListener('updatefound', () => {
       const worker = registration.installing;
       if (!worker) return;
