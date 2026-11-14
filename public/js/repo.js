@@ -9,7 +9,7 @@ import { parseAbout } from './about.js';
 import { createStorage, getLocalStorage, memoryStorage, exportBackup, parseBackup, clearCache } from './persist.js';
 import { autoBackupEnabled, backupIntervalHours, backupKeepCount, varyDistractors } from './settings.js';
 
-export const VERSION = 'web-2.0';
+export const VERSION = 'web-2.1';
 export { MODES, isCorrect };
 
 let autoTimer = 0;
