@@ -160,6 +160,15 @@ function topbar() {
     </header>`;
 }
 
+/** 首页黄框：默认词表发现错词时，引导去设置里重新部署。 */
+function wordlistNoticeHtml() {
+  return `
+    <div class="home-notice">
+      <div class="home-notice-text">如在默认词表内发现错词，请重新部署默认词库。</div>
+      <button class="btn small ghost" data-action="home-to-settings">转到 设置</button>
+    </div>`;
+}
+
 /* ---------- 侧边导航（桌面端） ---------- */
 
 const NAV_ITEMS = [
@@ -391,6 +400,7 @@ async function renderHome() {
   app.innerHTML = `
     <div class="center-col wide home-page">
     ${topbar()}
+    ${wordlistNoticeHtml()}
     <section class="hero">
       <div class="hero-top">
         <div class="tag">本词库进度</div>
@@ -1702,12 +1712,12 @@ async function renderSettings() {
       ${pageHead('设置', themeToggleHtml(pref), '#/', true)}
 
       <section class="settings-important">
-        <div class="section-label">重要</div>
+        <div class="section-label">重要提示</div>
         <div class="card settings">
           <div class="setting-row" style="padding:0">
             <div class="setting-text">
               <div class="title">重新部署默认词库</div>
-              <small>用最新内置词表重建「高中 3500 词」和「大学英语四级」：补缺失词、修正坏条目。星标、错题、复习记录尽量保留；导入的自建词库不受影响。</small>
+              <small>如在默认词表内发现错词，请重新部署默认词库。用最新内置词表重建「高中 3500 词」和「大学英语四级」：补缺失词、修正坏条目。星标、错题、复习记录尽量保留；导入的自建词库不受影响。</small>
             </div>
             <button class="btn small danger-text" data-action="redeploy-builtins">重新部署</button>
           </div>
@@ -2170,6 +2180,9 @@ app.addEventListener('click', async (event) => {
   switch (action) {
     case 'home':
       location.hash = '#/';
+      break;
+    case 'home-to-settings':
+      location.hash = '#/settings';
       break;
     case 'back':
       location.hash = target.dataset.back || '#/';

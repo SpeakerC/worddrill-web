@@ -25,6 +25,9 @@ async function main() {
     await page.waitForSelector('.hero');
     check((await page.$$('.mode')).length === 4, '首页应有四种练习方式');
     check((await bodyText()).includes('开始练习'), '首页应有开始按钮');
+    check(Boolean(await page.$('.home-notice')), '首页应有黄框提示');
+    check((await page.textContent('.home-notice')).includes('如在默认词表内发现错词'), '黄框提示文案');
+    check(Boolean(await page.$('[data-action="home-to-settings"]')), '黄框应有「转到 设置」');
     check(!(await page.$('#repeatInput')), '首页不应再有「允许重复抽到已练过的」开关');
     check((await bodyText()).includes('每轮只抽从未练过的词'), '首页应说明只抽没练过的词');
 
@@ -247,8 +250,10 @@ async function main() {
     check(!(await bodyText()).includes('练习时朗读单词'), '设置页已去掉练习时朗读单词');
 
     /* ---------- 重要：重新部署默认词库（两次确认都可以取消） ---------- */
-    check(Boolean(await page.$('.settings-important')), '设置页应有「重要」分类');
-    check((await page.textContent('.settings-important')).includes('重新部署默认词库'), '重要分类应含重新部署入口');
+    check(Boolean(await page.$('.settings-important')), '设置页应有「重要提示」分类');
+    check((await page.textContent('.settings-important')).includes('重要提示'), '分类标题应为「重要提示」');
+    check((await page.textContent('.settings-important')).includes('如在默认词表内发现错词'), '描述最前面应有提醒句');
+    check((await page.textContent('.settings-important')).includes('重新部署默认词库'), '重要提示应含重新部署入口');
     check(Boolean(await page.$('[data-action="redeploy-builtins"]')), '应有重新部署按钮');
 
     await page.click('[data-action="redeploy-builtins"]');
@@ -396,6 +401,10 @@ async function main() {
     await page.waitForSelector('.hero', { timeout: 15000 });
     check((await bodyText()).includes('开始练习'), '断网后仍应能打开并使用');
     await context.setOffline(false);
+
+    await page.click('[data-action="home-to-settings"]');
+    await page.waitForFunction(() => location.hash === '#/settings');
+    check(Boolean(await page.$('.settings-important')), '首页黄框可转到设置');
 
     /* ---------- 老数据一次性迁移：加载时自动，不点设置 ---------- */
     const legacy = await browser.newContext({ viewport: { width: 1280, height: 900 } });
