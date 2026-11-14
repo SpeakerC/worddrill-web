@@ -10,7 +10,7 @@
  *   mode = 'en_zh'（看英选汉）| 'zh_en'（看汉选英）
  */
 
-const POS_UNIT = '(?:adv|modal|prep|conj|pron|art|num|int|aux|vt|vi|ad|n|v|a)';
+const POS_UNIT = '(?:modal(?:\\s+v)?|interj|adj|adv|prep|conj|pron|art|num|int|aux|vt|vi|ad|a|n|v)';
 const IPA = /[ˈˌəɔɪʊʃʒθðŋæɑɜːɒʌɚɝ]/;
 const PRIVATE = /[\uE000-\uF8FF\u200B-\u200D\uFEFF]/;
 const WORD_RE = /^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ0-9'’.\-/&\s]*$/;
@@ -66,8 +66,14 @@ export function coreGloss(meaning) {
 export function posUnits(pos) {
   const key = String(pos ?? '').toLowerCase();
   return memo(posCache, key, () => {
-    const units = key.match(/(?:adv|modal|prep|conj|pron|art|num|int|aux|vt|vi|ad|n|v|a)/g) || [];
-    return new Set(units.map((u) => (u === 'vt' || u === 'vi' ? 'v' : (u === 'adv' || u === 'adj' ? 'ad' : u))));
+    const units = key.match(/(?:interj|modal(?:\s+v)?|adj|adv|prep|conj|pron|art|num|int|aux|vt|vi|ad|a|n|v)(?![a-z])/g) || [];
+    return new Set(units.map((u) => {
+      if (u.startsWith('modal')) return 'modal';
+      if (u === 'vt' || u === 'vi') return 'v';
+      if (u === 'adv' || u === 'adj') return 'ad';
+      if (u === 'interj') return 'int';
+      return u;
+    }));
   });
 }
 
@@ -226,6 +232,16 @@ function optionKey(mode, entry) {
   return mode === 'en_zh' ? coreGloss(meaningOf(entry)) : normalizeWord(wordOf(entry));
 }
 
+/** 只在实验性开关打开时用：把候选顺序打散，选项不再固定。 */
+function shuffled(list, rng) {
+  const copy = [...list];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
 function canTake(mode, entry, taken) {
   const key = optionKey(mode, entry);
   if (!key || taken.has(key)) return false;
@@ -243,11 +259,12 @@ function canTake(mode, entry, taken) {
  * @param {object} correct 正确词条，需有 word/meaning（或 w/m）与 pos
  * @param {object[]} pool 候选池（同词库，已排除屏蔽词）
  * @param {'en_zh'|'zh_en'} mode 看英选汉 / 看汉选英
- * @param {{count?:number}} options
+ * @param {{count?:number, rng?:()=>number, vary?:boolean}} options
  * @returns {object[]} 最多 count 个干扰项，不含正确答案
  */
 export function pickDistractors(correct, pool, mode = 'en_zh', options = {}) {
-  const { count = 3 } = options;
+  const { count = 3, vary = false } = options;
+  const rng = options.rng || Math.random;
   if (!correct || !Array.isArray(pool) || (mode !== 'en_zh' && mode !== 'zh_en')) return [];
   if (count <= 0) return [];
 
@@ -295,8 +312,9 @@ export function pickDistractors(correct, pool, mode = 'en_zh', options = {}) {
   };
 
   const safeOrtho = topOrtho.filter((item) => safe(item.entry));
+  const orthoCandidates = vary ? shuffled(safeOrtho, rng) : safeOrtho;
   const orthoTarget = mode === 'en_zh' ? Math.min(2, count) : count;
-  for (const item of safeOrtho) {
+  for (const item of orthoCandidates) {
     if (picked.length >= orthoTarget) break;
     take(item.entry);
   }

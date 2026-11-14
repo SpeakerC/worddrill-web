@@ -7,7 +7,7 @@ import { buildItems, MODES, isCorrect } from './quiz.js';
 import { parseMarkdown, decodeText } from './vocab.js';
 import { parseAbout } from './about.js';
 import { createStorage, getLocalStorage, memoryStorage, exportBackup, parseBackup, clearCache } from './persist.js';
-import { autoBackupEnabled, backupIntervalHours, backupKeepCount } from './settings.js';
+import { autoBackupEnabled, backupIntervalHours, backupKeepCount, varyDistractors } from './settings.js';
 
 export const VERSION = 'web-2.0';
 export { MODES, isCorrect };
@@ -22,7 +22,11 @@ function startAutoBackup() {
   if (hours <= 0) return;
   const ms = hours * 60 * 60 * 1000;
   autoTimer = setInterval(() => {
-    if (store) storage.saveAutoBackup(store.db, backupKeepCount());
+    if (store) {
+      storage.saveAutoBackup(store.db, backupKeepCount()).catch(() => {
+        // 后台快照失败不打扰用户，下一轮再试
+      });
+    }
   }, ms);
   // 不保存定时器到 unref，页面关闭时自然停止
 }
@@ -58,8 +62,8 @@ async function loadSeed() {
  */
 const BUILTIN_VERSION = 3;
 
-/** 内置词表内容版本：2 = 已修复吞词/坏词头的版本。老数据（0）启动时自动迁移一次。 */
-const WORDLIST_VERSION = 2;
+/** 内置词表内容版本：2 = 已修复吞词/坏词头；3 = 词性统一为 adj./adv.，loaf 释义加括号。 */
+const WORDLIST_VERSION = 3;
 
 /** 下架过的内置词库：不再出现在清单里，也不再补种。 */
 const RETIRED_SEEDS = ['senior-ext'];
@@ -151,7 +155,7 @@ async function migrateWordlist(s) {
   const builtins = await loadBuiltins({ fresh: true });
   if (builtins.length < BUILTIN_BOOKS.length) return null;
   try {
-    saveAutoBackupNow();
+    await saveAutoBackupNow();
   } catch {
     // 快照失败不挡住迁移
   }
@@ -183,7 +187,16 @@ export async function init(options = {}) {
       storageError = err;
       if (options.onStorageError) options.onStorageError(err);
     },
+    onOk: () => { storageError = null; },
   });
+
+  // 旧版快照存在 localStorage 里，会和白天的词表抢 5MB 配额。先搬到
+  // IndexedDB 并释放空间，再加载/迁移主数据。
+  try {
+    await storage.prepareSnapshots();
+  } catch {
+    // 迁移快照失败不影响启动
+  }
 
   let db = storage.load();
   let seeded = false;
@@ -247,7 +260,7 @@ export async function redeployBuiltins() {
   }
   let snapshot = 0;
   try {
-    snapshot = saveAutoBackupNow();
+    snapshot = await saveAutoBackupNow();
   } catch {
     // 快照失败不挡住重建
   }
@@ -336,7 +349,9 @@ export function startPractice(body = {}) {
   const requested = ids.length > 0 ? ids.length : count;
   // 首次练习（从没答过）的词才显示「不再练习此单词」
   const practiced = new Set(s.db.practiceLog.map((p) => p.wordId));
-  const items = buildItems(words, s.allWords(), requested, mode).map((item) => ({
+  const items = buildItems(words, s.allWords(), requested, mode, Math.random, {
+    vary: varyDistractors(),
+  }).map((item) => ({
     ...item,
     firstTime: !practiced.has(item.wordId),
   }));
@@ -519,22 +534,35 @@ export function setBackupKeepCount(count) {
   return backupKeepCount();
 }
 
-/** 立即保存一份自动备份快照，返回保留的份数（旧的会按上限删掉）。 */
-export function saveAutoBackupNow() {
+/** 立即保存一份自动备份快照，返回保留的份数（旧的会按上限删掉）；失败返回 -1。 */
+export async function saveAutoBackupNow() {
   if (!store) return 0;
   return storage.saveAutoBackup(store.db, backupKeepCount());
 }
 
 /** 列出自动备份快照，新在前。 */
-export function listAutoBackups() {
+export async function listAutoBackups() {
   if (!storage) return [];
   return storage.listAutoBackups();
 }
 
 /** 清除全部自动备份快照，返回删掉的份数。 */
-export function clearAutoBackups() {
+export async function clearAutoBackups() {
   if (!storage) return 0;
   return storage.clearAutoBackups();
+}
+
+/** 从最近一份自动快照恢复（会用快照整体替换当前数据）。 */
+export async function restoreLatestAutoBackup() {
+  if (!storage) throw new Error('本地存储不可用');
+  const snap = await storage.latestAutoBackup();
+  if (!snap || !snap.db) throw new Error('还没有可恢复的快照');
+  requireStore().replaceDb(snap.db);
+  return {
+    at: snap.at,
+    books: requireStore().books().length,
+    words: requireStore().db.words.length,
+  };
 }
 
 /** 清除 Service Worker 离线缓存，返回删掉的缓存数。不删学习数据。 */

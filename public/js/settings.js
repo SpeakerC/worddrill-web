@@ -5,6 +5,8 @@ const TTS_KEY = 'worddrill.tts';
 const AUTO_BACKUP_KEY = 'worddrill.autobackup';
 const BACKUP_INTERVAL_KEY = 'worddrill.backupInterval';
 const BACKUP_KEEP_KEY = 'worddrill.backupKeep';
+const VARY_DISTRACTORS_KEY = 'worddrill.varyDistractors';
+const REVEAL_MEANINGS_KEY = 'worddrill.revealMeanings';
 
 export const GOAL_DEFAULT = 30;
 export const GOAL_MIN = 5;
@@ -86,4 +88,24 @@ export function setBackupKeepCount(count) {
   const next = Math.min(Math.max(Math.trunc(Number(count) || BACKUP_KEEP_DEFAULT), BACKUP_KEEP_MIN), BACKUP_KEEP_MAX);
   write(BACKUP_KEEP_KEY, next);
   return next;
+}
+
+/* ---------- 实验性功能（默认关闭） ---------- */
+
+/** 干扰项是否每次从最像的前 9 个词里重新抽；关闭时同一词每次选项固定。 */
+export function varyDistractors() {
+  return read(VARY_DISTRACTORS_KEY, 'off') === 'on';
+}
+
+export function setVaryDistractors(enabled) {
+  write(VARY_DISTRACTORS_KEY, enabled ? 'on' : 'off');
+}
+
+/** 汉译英答对后，是否在其余三个选项下面显示它们的中文释义。 */
+export function revealOptionMeanings() {
+  return read(REVEAL_MEANINGS_KEY, 'off') === 'on';
+}
+
+export function setRevealOptionMeanings(enabled) {
+  write(REVEAL_MEANINGS_KEY, enabled ? 'on' : 'off');
 }

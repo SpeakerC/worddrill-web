@@ -5,6 +5,7 @@
 
 let voices = [];
 let warmed = false;
+let primed = false;
 
 export function supported() {
   return typeof window !== 'undefined'
@@ -39,6 +40,40 @@ export function warmup() {
   } catch {
     /* 老浏览器没有事件，忽略 */
   }
+  // 浏览器语音引擎要等第一次 speak 才真正启动。页面加载时先静音试一次；
+  // 移动端若必须等用户手势，onerror 会复位，这些监听会再补一次。
+  // 不用 once：预热若因浏览器策略没启动，下一次点按还能重试。
+  prime();
+  for (const event of ['pointerdown', 'keydown']) {
+    window.addEventListener(event, prime, { passive: true });
+  }
+}
+
+/**
+ * 静音预热语音引擎。必须由用户手势触发（移动端不允许页面自动发声）。
+ * 只做一次；失败就退回未预热，不影响正常朗读。
+ */
+export function prime() {
+  if (!supported() || primed) return;
+  primed = true;
+  let started = false;
+  try {
+    const synth = window.speechSynthesis;
+    if (synth.speaking || synth.pending) { primed = false; return; }
+    const utterance = new window.SpeechSynthesisUtterance('a');
+    utterance.volume = 0;
+    utterance.rate = 2;
+    utterance.lang = 'en-US';
+    const voice = pickVoice();
+    if (voice) utterance.voice = voice;
+    utterance.onstart = () => { started = true; };
+    utterance.onerror = () => { primed = false; };
+    synth.speak(utterance);
+    // 有些浏览器既不报错也不开始（等手势），1.5 秒后允许重试
+    setTimeout(() => { if (!started) primed = false; }, 1500);
+  } catch {
+    primed = false;
+  }
 }
 
 /**
@@ -51,7 +86,9 @@ export function speak(text, options = {}) {
   if (!clean) return '';
   try {
     const synth = window.speechSynthesis;
-    synth.cancel();
+    if (synth.paused) synth.resume();
+    // 没有在播时不要 cancel：Chrome/Edge 的 cancel 本身会拖慢下一句起播
+    if (synth.speaking || synth.pending) synth.cancel();
     const utterance = new window.SpeechSynthesisUtterance(clean);
     const voice = pickVoice();
     if (voice) {

@@ -75,7 +75,14 @@ async function boot() {
   applyTheme();
   watchSystem();
   warmupSpeech();
-  const data = await repo.init({ onStorageError: (err) => toast(`保存失败：${err.message}`) });
+  const data = await repo.init({
+    onStorageError: (err) => {
+      const quota = /quota/i.test(`${err.name || ''} ${err.message || ''}`);
+      toast(quota
+        ? '保存失败：本地空间不足，请先导出备份并清理旧快照'
+        : `保存失败：${err.message}`);
+    },
+  });
   state.books = data.books;
   state.modes = data.modes;
   state.about = data.about;
@@ -629,16 +636,25 @@ function renderPractice() {
         ${p.answered ? '' : '<button class="btn block" style="margin-top:10px" data-action="submit-spell">提交</button>'}
       </div>`;
   } else {
+    const answeredCorrect = p.answered && p.records.length > 0
+      && p.records[p.records.length - 1].correct;
+    const showExtras = answeredCorrect && p.mode === 'zh_en' && settings.revealOptionMeanings();
     body = `
       <div class="options">
         ${item.options.map((text, index) => {
     const cls = p.answered
       ? (index === item.correctOption ? 'correct' : (index === p.choice ? 'wrong' : ''))
       : '';
+    const extra = showExtras && index !== item.correctOption
+      ? item.optionMeanings?.[index] || ''
+      : '';
     return `
           <button class="opt ${cls}" data-action="option" data-index="${index}" ${p.answered ? 'disabled' : ''}>
             <span class="badge">${String.fromCharCode(65 + index)}</span>
-            <span>${esc(text)}</span>
+            <span class="opt-text">
+              <span>${esc(text)}</span>
+              ${extra ? `<span class="opt-extra">${esc(extra)}</span>` : ''}
+            </span>
           </button>`;
   }).join('')}
       </div>`;
@@ -1707,6 +1723,7 @@ async function renderReport() {
 async function renderSettings() {
   const version = (state.about && state.about.version) || repo.VERSION;
   const pref = themePref();
+  const backupStatus = await backupStatusText();
   app.innerHTML = `
     <div class="center-col wide settings-page">
       ${pageHead('设置', themeToggleHtml(pref), '#/', true)}
@@ -1806,10 +1823,11 @@ async function renderSettings() {
               <button class="btn ghost small" data-action="export-backup">导出备份</button>
               <button class="btn ghost small" data-action="import-backup">恢复备份</button>
               <button class="btn ghost small" data-action="save-autobackup-now">立即存一份快照</button>
+              <button class="btn ghost small" data-action="restore-autobackup">恢复最近快照</button>
               <button class="btn small danger-text" data-action="clear-backup-cache">清除缓存</button>
             </div>
 
-            <div class="hint" style="margin-top:12px" id="backupStatus">${esc(backupStatusText())}</div>
+            <div class="hint" style="margin-top:12px" id="backupStatus">${esc(backupStatus)}</div>
             <input id="backupFile" type="file" accept="application/json,.json" hidden>
           </div>
         </section>
@@ -1854,6 +1872,32 @@ async function renderSettings() {
           </div>
         </section>
 
+        <section class="settings-tile">
+          <div class="section-label">实验性功能</div>
+          <div class="card settings">
+            <div class="setting-row" style="padding-top:0">
+              <div class="setting-text">
+                <div class="title">干扰项变化</div>
+                <small>每次从最像的 9 个词里重新抽，选项不再固定</small>
+              </div>
+              <label class="switch" title="让干扰项每次不同">
+                <input id="varyDistractorsInput" type="checkbox" ${settings.varyDistractors() ? 'checked' : ''}>
+                <span class="switch-track"><span class="switch-thumb"></span></span>
+              </label>
+            </div>
+            <div class="setting-row" style="padding-bottom:0">
+              <div class="setting-text">
+                <div class="title">答对后显示其他选项释义</div>
+                <small>汉译英答对后，标出三个干扰项的中文意思</small>
+              </div>
+              <label class="switch" title="答对后显示干扰项释义">
+                <input id="revealMeaningsInput" type="checkbox" ${settings.revealOptionMeanings() ? 'checked' : ''}>
+                <span class="switch-track"><span class="switch-thumb"></span></span>
+              </label>
+            </div>
+          </div>
+        </section>
+
       </div>
     </div>`;
 
@@ -1873,11 +1917,11 @@ async function renderSettings() {
       if (label) label.textContent = ttsInput.checked ? '已开启' : '已关闭';
     });
   }
-  syncAutoBackupUI();
+  await syncAutoBackupUI();
 }
 
 /** 自动备份区：关闭开关时灰掉间隔与份数，并显示快照概况。 */
-function syncAutoBackupUI() {
+async function syncAutoBackupUI() {
   const enabled = settings.autoBackupEnabled();
   for (const id of ['backupIntervalInput', 'backupKeepInput']) {
     const el = document.getElementById(id);
@@ -1887,12 +1931,12 @@ function syncAutoBackupUI() {
     }
   }
   const status = document.getElementById('backupStatus');
-  if (status) status.textContent = backupStatusText();
+  if (status) status.textContent = await backupStatusText();
 }
 
-function backupStatusText() {
+async function backupStatusText() {
   const info = repo.info();
-  const snaps = repo.listAutoBackups();
+  const snaps = await repo.listAutoBackups();
   const storage = info.persistent
     ? `已用 ${formatSize(info.usageBytes)} · 保存在本机，不上传`
     : '浏览器不允许本地存储，本次修改在关闭后会丢失';
@@ -2428,9 +2472,30 @@ app.addEventListener('click', async (event) => {
     }
     case 'save-autobackup-now': {
       try {
-        const kept = repo.saveAutoBackupNow();
-        syncAutoBackupUI();
-        toast(`已保存一份自动备份快照，当前保留 ${kept} 份`);
+        const kept = await repo.saveAutoBackupNow();
+        await syncAutoBackupUI();
+        if (kept < 0) {
+          toast('快照保存失败：本地空间不足，请先导出备份并清理旧快照');
+        } else {
+          toast(`已保存一份自动备份快照，当前保留 ${kept} 份`);
+        }
+      } catch (err) { toast(err.message); }
+      break;
+    }
+    case 'restore-autobackup': {
+      const ok = await confirmDialog(
+        '恢复最近快照？',
+        '会用最近一份自动快照覆盖当前词库、星标、错题与复习记录，无法撤销。建议先导出备份。',
+        '恢复',
+      );
+      if (!ok) return;
+      try {
+        const result = await repo.restoreLatestAutoBackup();
+        await reloadBooks();
+        state.start = null;
+        state.end = null;
+        await renderSettings();
+        toast(`已恢复 ${result.words} 个词、${result.books} 个词库`);
       } catch (err) { toast(err.message); }
       break;
     }
@@ -2438,7 +2503,7 @@ app.addEventListener('click', async (event) => {
       const ok = await confirmDialog('清除备份缓存？', '删除全部自动快照和离线缓存，学习数据不受影响。建议先导出备份。', '清除');
       if (!ok) return;
       try {
-        const removed = repo.clearAutoBackups();
+        const removed = await repo.clearAutoBackups();
         const caches = await repo.clearOfflineCache();
         await renderSettings();
         toast(`已清除 ${removed} 份自动备份快照、${caches} 个离线缓存`);
@@ -2487,7 +2552,7 @@ app.addEventListener('change', (event) => {
   }
   if (event.target.id === 'autobackupInput') {
     settings.setAutoBackupEnabled(event.target.checked);
-    syncAutoBackupUI();
+    void syncAutoBackupUI();
     toast(event.target.checked ? '已开启自动备份' : '已关闭自动备份');
   }
   if (event.target.id === 'backupIntervalInput') {
@@ -2499,6 +2564,14 @@ app.addEventListener('change', (event) => {
     const value = settings.setBackupKeepCount(event.target.value);
     event.target.value = value;
     toast(`最多保留 ${value} 份自动备份`);
+  }
+  if (event.target.id === 'varyDistractorsInput') {
+    settings.setVaryDistractors(event.target.checked);
+    toast(event.target.checked ? '干扰项每次重新抽' : '干扰项恢复固定');
+  }
+  if (event.target.id === 'revealMeaningsInput') {
+    settings.setRevealOptionMeanings(event.target.checked);
+    toast(event.target.checked ? '答对后显示其他选项释义' : '答对后不再显示其他选项释义');
   }
 });
 
@@ -2554,7 +2627,7 @@ async function registerServiceWorker() {
 
 /** 安卓 APK 的版本与下载地址，设置页和首页底部的下载按钮共用。 */
 function androidApkUrl() {
-  const version = '1.4.4';
+  const version = '1.6.0';
   return {
     version,
     url: `https://gitee.com/MTeaCase/worddrill/releases/download/v${version}/WordDrill-${version}.apk`,

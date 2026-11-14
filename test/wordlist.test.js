@@ -15,14 +15,14 @@ const ASSETS = path.join(ROOT, 'public', 'assets');
 
 const readBook = (file) => JSON.parse(fs.readFileSync(path.join(ASSETS, file), 'utf8'));
 
-const POS = '(?:n|v|a|ad|adv|vt|vi|prep|conj|pron|art|num|int|aux|modal)';
+const POS = '(?:adj|adv|interj|modal|n|v|vt|vi|prep|conj|pron|art|num|int|aux)';
 const MERGED_TAIL = new RegExp(`([A-Za-z][A-Za-z'’-]{1,})(?:\\s*[（(][^）)]{0,24}[）)])?\\s+${POS}\\.`);
 const POS_PREFIX = new RegExp(`^${POS}\\.?\\s`);
 const LATIN = /^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ0-9'’.\-/&\s]*$/;
 const IPA = /[ˈˌəɔɪʊʃʒθðŋæɑɜːɒʌ]/;
 const FORBIDDEN = /[*[\]{}<>\\|+=^%$#@!?;:",`~]/;
 const PRIVATE = /[\uE000-\uF8FF\u200B-\u200D\uFEFF]/;
-const POS_FORMAT = /^[a-z.&/ ]*$/;
+const POS_FORMAT = /^(?:(?:adj|adv|prep|conj|pron|art|num|int|aux|vt|vi|n|v)\.)(?:&(?:adj|adv|prep|conj|pron|art|num|int|aux|vt|vi|n|v)\.)*$|^modal v\.$|^$/;
 
 const BOOKS = [
   { name: '高中 3500 词', file: 'words3500.json', min: 3500 },
@@ -105,4 +105,19 @@ test('高中 3500：之前吞词/坏词头都已修好', () => {
 
   const sort = list.find((e) => e.w === 'sort');
   assert.deepEqual(sort, { w: 'sort', pos: 'v.&n.', m: '把…分类，拣选；种类，类别' });
+
+  const loaf = list.find((e) => e.w === 'loaf');
+  assert.equal(loaf.pos, 'n.');
+  assert.equal(loaf.m, '面包（一条）', 'loaf 的释义应加括号，和 bread 区分开');
+});
+
+test('两本词表：形容词/副词统一为 adj./adv.，没有 a./ad.', () => {
+  for (const book of BOOKS) {
+    const bad = readBook(book.file).filter((e) => /(^|[.&])(a|ad)\./.test(e.pos));
+    assert.deepEqual(
+      bad.map((e) => `${e.w} ${e.pos}`),
+      [],
+      `${book.name} 仍有 a./ad.：${bad.slice(0, 10).map((e) => e.w).join(', ')}`,
+    );
+  }
 });

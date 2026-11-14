@@ -269,7 +269,11 @@ export class Store {
 
   /** 整体替换（恢复备份用）。旧备份里练过但没排期的词会一起补齐。 */
   replaceDb(raw) {
-    this.db = normalizeDb(raw);
+    // 不能直接换 this.db 的引用：persist 绑定的是旧对象，换了之后写回的还是旧数据。
+    // 原地清空再填入，外部持有的引用才能继续指向最新内容。
+    const next = normalizeDb(raw);
+    for (const key of Object.keys(this.db)) delete this.db[key];
+    Object.assign(this.db, next);
     this.ensureReviewRecords();
     this.change('all');
     return this;

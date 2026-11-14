@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { Store } from '../public/js/store.js';
-import { createStorage, exportBackup, parseBackup } from '../public/js/persist.js';
+import { createStorage, exportBackup, parseBackup, getLocalStorage } from '../public/js/persist.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SEED = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'seed.json'), 'utf8'));
@@ -31,6 +31,27 @@ function connected() {
 
 test('首次打开没有数据，读取时返回 null', () => {
   assert.equal(createStorage({ storage: fakeStorage() }).load(), null);
+});
+
+test('localStorage 只是配额满时，仍认作可用（不能退回内存存储）', () => {
+  const had = Object.prototype.hasOwnProperty.call(globalThis, 'localStorage');
+  const old = globalThis.localStorage;
+  const full = {
+    getItem: () => null,
+    removeItem: () => {},
+    setItem: () => {
+      const err = new Error('The quota has been exceeded.');
+      err.name = 'QuotaExceededError';
+      throw err;
+    },
+  };
+  try {
+    Object.defineProperty(globalThis, 'localStorage', { value: full, configurable: true });
+    assert.equal(getLocalStorage(), full);
+  } finally {
+    if (had) Object.defineProperty(globalThis, 'localStorage', { value: old, configurable: true });
+    else delete globalThis.localStorage;
+  }
 });
 
 test('改动防抖写入，flush 之后重新加载能拿到同样的数据', () => {
@@ -92,6 +113,22 @@ test('旧版 data/db.json 也能直接恢复，缺失的自增 id 会自动补�
   const added = store.importEntries(1, null, [{ word: 'beta', pos: '', meaning: '乙' }]);
   assert.equal(added.added, 1);
   assert.equal(store.words(1).length, 2);
+});
+
+test('恢复备份会真正写回本地存储', () => {
+  const { storage, persist, store } = connected();
+  const book = store.books()[0];
+  const word = store.words(book.id)[0];
+  const text = exportBackup(store.serialize());
+
+  store.setStar(word.id, true);
+  persist.flush();
+  store.replaceDb(parseBackup(text));
+  persist.flush();
+
+  const reloaded = createStorage({ storage }).load();
+  const target = reloaded.words.find((w) => w.id === word.id);
+  assert.equal(target.starred, false, '恢复后本地存储里的星标应被覆盖');
 });
 
 test('不是备份文件时给出明确错误', () => {

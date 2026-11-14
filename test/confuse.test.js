@@ -42,11 +42,16 @@ test('归一化与核心释义', () => {
   assert.equal(coreGloss('vt.&vi. 把…分类，拣选'), '把分类拣选');
   assert.equal(coreGloss('（美）颜色'), '颜色');
   assert.equal(coreGloss('a. 好的；健康的'), '好健康');
+  assert.equal(coreGloss('adj. 好的；健康的'), '好健康');
+  assert.equal(coreGloss('adv. 熟练地'), '熟练');
+  assert.equal(coreGloss('prep. 在…之上'), '在之上');
 });
 
 test('词性归一', () => {
   assert.deepEqual([...posUnits('vt.&vi.')], ['v']);
   assert.deepEqual([...posUnits('a.&ad.')], ['a', 'ad']);
+  assert.deepEqual([...posUnits('adj.&adv.')], ['ad']);
+  assert.deepEqual([...posUnits('modal v.')], ['modal']);
   assert.equal(posMatch('n.', 'n.&v.'), 1);
   assert.equal(posMatch('n.', 'v.'), 0);
   assert.equal(posMatch('', ''), 0.5);

@@ -94,3 +94,50 @@ test('选择题：干扰项只从本题涉及的词库取', () => {
   assert.ok(!item.options.includes('adapter'));
   assert.ok(!item.options.includes('adeptly'));
 });
+
+test('汉译英：每个选项都带自己的中文释义', () => {
+  const pool = [
+    { id: 1, word: 'adapt', pos: 'v.', meaning: '适应' },
+    { id: 2, word: 'adopt', pos: 'v.', meaning: '采用' },
+    { id: 3, word: 'adept', pos: 'adj.', meaning: '熟练的' },
+    { id: 4, word: 'adapter', pos: 'n.', meaning: '适配器' },
+    { id: 5, word: 'apple', pos: 'n.', meaning: '苹果' },
+  ];
+  const [item] = buildItems([pool[0]], pool, 1, 'zh_en', seeded(2));
+  assert.equal(item.optionMeanings.length, item.options.length);
+  assert.equal(item.optionMeanings[item.correctOption], 'v. 适应');
+  for (let i = 0; i < item.options.length; i += 1) {
+    const word = pool.find((entry) => entry.word === item.options[i]);
+    assert.ok(word, `选项 ${item.options[i]} 应来自候选池`);
+    assert.equal(item.optionMeanings[i], `${word.pos} ${word.meaning}`);
+  }
+  const [en] = buildItems([pool[0]], pool, 1, 'en_zh', seeded(2));
+  assert.deepEqual(en.optionMeanings, en.options.map(() => ''), '英译汉选项本身就是释义，不再附加');
+});
+
+test('干扰项变化：默认固定，打开后从最像的候选里换', () => {
+  const pool = [
+    { id: 1, word: 'adapt', pos: 'v.', meaning: '适应' },
+    { id: 2, word: 'adopt', pos: 'v.', meaning: '采用' },
+    { id: 3, word: 'adept', pos: 'adj.', meaning: '熟练的' },
+    { id: 4, word: 'adapter', pos: 'n.', meaning: '适配器' },
+    { id: 5, word: 'adoption', pos: 'n.', meaning: '收养' },
+    { id: 6, word: 'adaptive', pos: 'adj.', meaning: '适应的' },
+    { id: 7, word: 'adoptive', pos: 'adj.', meaning: '收养的' },
+    { id: 8, word: 'adoptable', pos: 'adj.', meaning: '可收养的' },
+    { id: 9, word: 'adapter cable', pos: 'n.', meaning: '转接线' },
+  ];
+  const fixed = new Set();
+  for (const seed of [1, 2, 3, 4, 5]) {
+    const [item] = buildItems([pool[0]], pool, 1, 'zh_en', seeded(seed));
+    fixed.add([...item.options].sort().join('|'));
+  }
+  assert.equal(fixed.size, 1, `默认应固定，实际出现 ${fixed.size} 组选项`);
+
+  const varied = new Set();
+  for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    const [item] = buildItems([pool[0]], pool, 1, 'zh_en', seeded(seed), { vary: true });
+    varied.add([...item.options].sort().join('|'));
+  }
+  assert.ok(varied.size > 1, `打开变化后应出现多组选项，实际 ${varied.size} 组`);
+});

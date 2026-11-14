@@ -300,20 +300,41 @@ async function main() {
       const r = el.getBoundingClientRect();
       return { label: label ? label.textContent : '', width: Math.round(r.width), top: Math.round(r.top), left: Math.round(r.left) };
     }));
-    check(settingsTiles.length === 3, `设置页应有 3 块拼图，实际 ${settingsTiles.length}`);
+    check(settingsTiles.length === 4, `设置页应有 4 块拼图，实际 ${settingsTiles.length}`);
     const backupTile = settingsTiles.find((t) => t.label === '数据与备份');
     const learnTile = settingsTiles.find((t) => t.label === '学习');
+    const otherTile = settingsTiles.find((t) => t.label === '其他');
+    const experimentTile = settingsTiles.find((t) => t.label === '实验性功能');
     check(Boolean(backupTile), '设置页应有「数据与备份」块');
     check(backupTile && backupTile.width < 500, '数据与备份应与其他块同宽，不独占整行');
     check(
       learnTile && backupTile && learnTile.top === backupTile.top && learnTile.left !== backupTile.left,
       '学习与数据备份应在同一行',
     );
-    check(settingsTiles.some((t) => t.label === '其他'), '设置页应有「其他」块');
+    check(Boolean(otherTile), '设置页应有「其他」块');
+    check(Boolean(experimentTile), '设置页应有「实验性功能」块');
+    check(
+      otherTile && experimentTile && otherTile.top === experimentTile.top && otherTile.left !== experimentTile.left,
+      '实验性功能应与「其他」对齐在同一行',
+    );
+
+    /* ---------- 实验性功能开关 ---------- */
+    check(!(await page.isChecked('#varyDistractorsInput')), '干扰项变化默认应关闭');
+    check(!(await page.isChecked('#revealMeaningsInput')), '其他选项释义默认应关闭');
+    await page.evaluate(() => document.getElementById('varyDistractorsInput').click());
+    await page.evaluate(() => document.getElementById('revealMeaningsInput').click());
+    const experimentPrefs = await page.evaluate(() => ({
+      vary: localStorage.getItem('worddrill.varyDistractors'),
+      reveal: localStorage.getItem('worddrill.revealMeanings'),
+    }));
+    check(experimentPrefs.vary === 'on' && experimentPrefs.reveal === 'on',
+      `实验性开关应保存，实际 ${JSON.stringify(experimentPrefs)}`);
+    await page.evaluate(() => document.getElementById('varyDistractorsInput').click());
+    await page.evaluate(() => document.getElementById('revealMeaningsInput').click());
 
     /* ---------- APK 版本与链接 ---------- */
     const apkHref = await page.getAttribute('a[href*="gitee.com"]', 'href');
-    check(apkHref && apkHref.endsWith('v1.4.4/WordDrill-1.4.4.apk'), `APK 应为 1.4.4，实际 ${apkHref}`);
+    check(apkHref && apkHref.endsWith('v1.6.0/WordDrill-1.6.0.apk'), `APK 应为 1.6.0，实际 ${apkHref}`);
 
     /* ---------- 自动备份三项 ---------- */
     await page.waitForSelector('#autobackupInput', { state: 'attached' });
@@ -329,14 +350,34 @@ async function main() {
     }));
     check(abPrefs.interval === '4' && abPrefs.keep === '5', `备份间隔/保留数应保存，实际 ${JSON.stringify(abPrefs)}`);
     await page.click('[data-action="save-autobackup-now"]');
-    await page.waitForTimeout(300);
-    const snapshots = await page.evaluate(() => window.worddrill.repo.listAutoBackups().length);
+    await page.waitForTimeout(500);
+    const snapshots = await page.evaluate(async () => (await window.worddrill.repo.listAutoBackups()).length);
     check(snapshots >= 1, `应立即生成一份自动备份快照，实际 ${snapshots}`);
+    const snapshotStatus = await page.textContent('#backupStatus');
+    check(!snapshotStatus.includes('0 份'), `保存后状态不应显示 0 份，实际 ${snapshotStatus}`);
+
+    // 恢复最近快照：先改一条星标，恢复后应回到快照里的状态
+    const starredId = await page.evaluate(() => {
+      const book = window.worddrill.repo.bootstrap().books.find((b) => b.name === '高中 3500 词');
+      const word = window.worddrill.repo.listWords(book.id, 'all', '').words[0];
+      window.worddrill.repo.setStar(word.id, true);
+      return word.id;
+    });
+    await page.click('[data-action="restore-autobackup"]');
+    await page.waitForSelector('.modal [data-ok]');
+    await page.click('.modal [data-ok]');
+    await page.waitForFunction(() => document.body.innerText.includes('已恢复'), null, { timeout: 10000 });
+    const restoredStar = await page.evaluate((id) => {
+      const book = window.worddrill.repo.bootstrap().books.find((b) => b.name === '高中 3500 词');
+      return window.worddrill.repo.listWords(book.id, 'all', '').words.find((w) => w.id === id)?.starred;
+    }, starredId);
+    check(restoredStar === false, '恢复快照后新加的星标应被覆盖');
+
     await page.click('[data-action="clear-backup-cache"]');
     await page.waitForSelector('.modal [data-ok]');
     await page.click('.modal [data-ok]');
     await page.waitForTimeout(500);
-    const afterClear = await page.evaluate(() => window.worddrill.repo.listAutoBackups().length);
+    const afterClear = await page.evaluate(async () => (await window.worddrill.repo.listAutoBackups()).length);
     check(afterClear === 0, `清除备份缓存后快照应为 0，实际 ${afterClear}`);
 
     await page.evaluate(() => { location.hash = '#/privacy'; });
@@ -448,10 +489,11 @@ async function main() {
       const meta = JSON.parse(localStorage.getItem('worddrill.db.meta'));
       return { books, sort, broken, log, mistake, review, version: meta.wordlistVersion };
     });
-    check(migrated.version === 2, `迁移后 wordlistVersion 应为 2，实际 ${migrated.version}`);
+    check(migrated.version === 3, `迁移后 wordlistVersion 应为 3，实际 ${migrated.version}`);
     check(migrated.broken === 0, 'v] 应已被替换');
     check(Boolean(migrated.sort && migrated.sort.id === 1 && migrated.sort.word === 'sort'), 'sort 应保留原 id');
     check(Boolean(migrated.sort && migrated.sort.starred), '星标应保留');
+    check(Boolean(migrated.sort && migrated.sort.pos === 'v.&n.'), `迁移后词性应统一，实际 ${migrated.sort && migrated.sort.pos}`);
     check(Boolean(migrated.log && migrated.log.times === 3), '练习记录应保留');
     check(Boolean(migrated.mistake && migrated.mistake.wrong === 2), '错题应保留');
     check(Boolean(migrated.review && migrated.review.level === 1), '复习排期应保留');

@@ -56,7 +56,7 @@ export function meaningOf(word) {
   return word.pos ? `${word.pos} ${meaning}` : meaning;
 }
 
-export function makeItem(word, allWords, mode, rng = Math.random) {
+export function makeItem(word, allWords, mode, rng = Math.random, options = {}) {
   const text = word.word ?? word.w;
   if (mode === 'spell' || mode === 'listen') {
     const listen = mode === 'listen';
@@ -70,17 +70,35 @@ export function makeItem(word, allWords, mode, rng = Math.random) {
       answer: text,
       options: [],
       correctOption: -1,
+      optionMeanings: [],
       spell: true,
       listen,
       hint: hint(text),
     };
   }
   const correct = mode === 'en_zh' ? meaningOf(word) : text;
-  const distractors = pickDistractors(word, allWords, mode, { rng, count: OPTION_COUNT - 1 });
-  const values = distractors.map((entry) => (mode === 'en_zh'
-    ? meaningOf(entry)
-    : String(entry.word ?? entry.w)));
-  const options = shuffled([...new Set([correct, ...values])], rng);
+  const distractors = pickDistractors(word, allWords, mode, {
+    rng,
+    count: OPTION_COUNT - 1,
+    vary: Boolean(options.vary),
+  });
+  const pairs = [
+    { value: correct, meaning: meaningOf(word) },
+    ...distractors.map((entry) => ({
+      value: mode === 'en_zh' ? meaningOf(entry) : String(entry.word ?? entry.w),
+      meaning: meaningOf(entry),
+    })),
+  ];
+  // 释义/词形重复的候选只留第一条，保证四个选项互不重复
+  const seen = new Set();
+  const unique = [];
+  for (const pair of pairs) {
+    if (seen.has(pair.value)) continue;
+    seen.add(pair.value);
+    unique.push(pair);
+  }
+  const ordered = shuffled(unique, rng);
+  const optionValues = ordered.map((pair) => pair.value);
   return {
     wordId: word.id,
     word: text,
@@ -88,15 +106,17 @@ export function makeItem(word, allWords, mode, rng = Math.random) {
     starred: Boolean(word.starred),
     prompt: mode === 'en_zh' ? text : meaningOf(word),
     answer: correct,
-    options,
-    correctOption: options.indexOf(correct),
+    options: optionValues,
+    correctOption: optionValues.indexOf(correct),
+    // 汉译英答对后可展示其余选项的中文，英译汉的选项本身就是释义
+    optionMeanings: ordered.map((pair) => (mode === 'zh_en' ? pair.meaning : '')),
     spell: false,
     listen: false,
     hint: '',
   };
 }
 
-export function buildItems(words, allWords, count, mode, rng = Math.random) {
+export function buildItems(words, allWords, count, mode, rng = Math.random, options = {}) {
   if (!Array.isArray(words) || words.length === 0 || count <= 0) return [];
   const seen = new Set();
   const picked = [];
@@ -111,5 +131,5 @@ export function buildItems(words, allWords, count, mode, rng = Math.random) {
   const pool = Array.isArray(allWords)
     ? (bookIds.size ? allWords.filter((w) => bookIds.has(w.bookId)) : allWords)
     : [];
-  return picked.map((word) => makeItem(word, pool, mode, rng));
+  return picked.map((word) => makeItem(word, pool, mode, rng, options));
 }

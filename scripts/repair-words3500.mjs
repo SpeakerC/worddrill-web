@@ -11,14 +11,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { normalizePos as normalizePosShared } from './normalize-pos.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SRC = path.join(ROOT, 'public', 'assets', 'words3500.json');
 const OUT = SRC;
 const raw = JSON.parse(fs.readFileSync(SRC, 'utf8'));
 
-const POS_UNIT = '(?:adv|modal|prep|conj|pron|art|num|int|aux|vt|vi|ad|n|v|a)';
-const POS_SEQ = `${POS_UNIT}\\.?(?:\\s*(?:&|/|,)\\s*${POS_UNIT}\\.?)*`;
+const POS_UNIT = '(?:modal(?:\\s+v)?|interj|adj|adv|prep|conj|pron|art|num|int|aux|vt|vi|ad|a|n|v)';
+const POS_SEQ = `${POS_UNIT}\\.?(?![a-z])(?:\\s*(?:&|/|,)\\s*${POS_UNIT}\\.?(?![a-z]))*`;
 const posRe = new RegExp(`^\\s*(${POS_SEQ})\\s*`);
 const mergeRe = new RegExp(`([A-Za-z][A-Za-z'’-]{1,})(?:\\s*[（(][^）)]{0,24}[）)])?\\s+${POS_UNIT}\\.`, 'g');
 const META = new Set(['modal', 'nations', 'kingdom', 'america', 'television']);
@@ -43,15 +44,7 @@ function normKey(w) {
 }
 
 function normPos(pos) {
-  const text = String(pos || '').trim();
-  if (!text) return '';
-  if (/^modal v\.?$/i.test(text)) return 'modal v.';
-  return text
-    .split(/[&/]/)
-    .map((p) => p.trim().replace(/\.$/, ''))
-    .filter(Boolean)
-    .map((p) => `${p.toLowerCase()}.`)
-    .join('&');
+  return normalizePosShared(pos);
 }
 
 function trimMeaning(text) {
