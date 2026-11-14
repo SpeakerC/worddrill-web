@@ -458,7 +458,7 @@ async function renderHome() {
             </div>
           </div>
           <div class="divider"></div>
-          <div class="hint">每轮只抽从未练过的词；练过的请用上面的「复习」。</div>
+          <div class="hint">每轮只抽从未练过的词。</div>
         </div>
 
         <div class="row book-links">
