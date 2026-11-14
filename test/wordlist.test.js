@@ -121,3 +121,16 @@ test('两本词表：形容词/副词统一为 adj./adv.，没有 a./ad.', () =>
     );
   }
 });
+
+test('两本词表：例句覆盖率超过 85%，字段成对', () => {
+  for (const book of BOOKS) {
+    const list = readBook(book.file);
+    const withExample = list.filter((e) => e.exampleEn);
+    assert.ok(
+      withExample.length > list.length * 0.85,
+      `${book.name} 只有 ${withExample.length} / ${list.length} 条例句`,
+    );
+    const broken = withExample.filter((e) => !e.exampleZh || e.exampleEn.includes('||'));
+    assert.deepEqual(broken.slice(0, 5).map((e) => e.w), [], `${book.name} 例句字段不完整`);
+  }
+});

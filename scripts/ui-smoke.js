@@ -23,7 +23,7 @@ async function main() {
     /* ---------- 首页 ---------- */
     await page.goto(server.base, { waitUntil: 'networkidle' });
     await page.waitForSelector('.hero');
-    check((await page.$$('.mode')).length === 4, '首页应有四种练习方式');
+    check((await page.$$('.mode')).length === 5, '首页应有五种练习方式');
     check((await bodyText()).includes('开始练习'), '首页应有开始按钮');
     check(Boolean(await page.$('.home-notice')), '首页应有黄框提示');
     check((await page.textContent('.home-notice')).includes('如在默认词表内发现错词'), '黄框提示文案');
@@ -35,6 +35,17 @@ async function main() {
     await page.click('[data-action="start"]');
     await page.waitForSelector('.prompt');
     check((await page.$$('.opt')).length === 4, '选择题应有四个选项');
+    const progressStable = await page.evaluate(() => {
+      const text = document.querySelector('.progress-text');
+      const bar = document.querySelector('.practice-top .bar');
+      const before = bar.getBoundingClientRect().left;
+      const original = text.textContent;
+      text.textContent = '第 100 题 / 共 200 题';
+      const after = bar.getBoundingClientRect().left;
+      text.textContent = original;
+      return before === after;
+    });
+    check(progressStable, '题号位数变多时进度条起点不应移动');
 
     // 首练可把词直接标成已掌握
     check(Boolean(await page.$('[data-action="skip-word"]')), '首练应能标记「不再练习此单词」');
@@ -62,17 +73,40 @@ async function main() {
     await page.evaluate(() => { location.hash = '#/import'; });
     await page.waitForSelector('.drop');
     await page.fill('#markdownInput', [
-      '| # | 英文 | 词性 | 汉语 |',
-      '|---|---|---|---|',
-      '| 1 | competence | n. | 能力；胜任 |',
-      '| 2 | tricky | adj. | 难对付的 |',
+      '| # | 英文 | 词性 | 汉语 | 例句 |',
+      '|---|---|---|---|---|',
+      '| 1 | competence | n. | 能力；胜任 | He has great competence.||他很有能力。 |',
+      '| 2 | tricky | adj. | 难对付的 |  |',
+      '| 3 | mindset | n. | 思维模式 |  |',
     ].join('\n'));
     await page.click('[data-action="preview"]');
     await page.waitForSelector('#preview:not([hidden])');
-    check((await page.textContent('#preview')).includes('解析到 2 条'), '应解析出两条单词');
+    check((await page.textContent('#preview')).includes('解析到 3 条'), '应解析出三条单词');
+    check((await page.textContent('#preview')).includes('〔例〕'), '预览应显示例句');
     await page.fill('#nameInput', '冒烟测试词库');
     await page.click('[data-action="save-import"]');
     await page.waitForFunction(() => location.hash === '#/' || location.hash === '');
+    await page.waitForSelector('.hero');
+
+    /* ---------- 例句填词：导入的第四列例句 ---------- */
+    await page.click('[data-action="mode"][data-mode="ex_spell"]');
+    await page.waitForFunction(() => document.querySelector('.mode.on b')?.textContent === '例句填词');
+    await page.click('[data-action="start"]');
+    await page.waitForSelector('.spell-hint');
+    check((await bodyText()).includes('例 句 填 词'), '例句填词应有题型标签');
+    const exampleAnswer = await page.evaluate(() => {
+      const book = window.worddrill.repo.bootstrap().books.find((b) => b.name === '冒烟测试词库');
+      const word = window.worddrill.repo.listWords(book.id, 'all', '').words.find((w) => w.exampleEn);
+      if (!word) return '';
+      const re = new RegExp(`\\b${word.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[a-z]*\\b`, 'i');
+      return (re.exec(word.exampleEn) || [''])[0];
+    });
+    check(Boolean(exampleAnswer), '导入的例句应能挖空');
+    await page.fill('#spellInput', exampleAnswer);
+    await page.click('[data-action="submit-spell"]');
+    await page.waitForSelector('.feedback');
+    check((await page.textContent('.feedback')).includes('答对了'), '例句填词应能答对');
+    await page.evaluate(() => { location.hash = '#/'; });
     await page.waitForSelector('.hero');
 
     /* ---------- 默写 ---------- */
@@ -99,10 +133,10 @@ async function main() {
     check(await page.evaluate(() => document.querySelector('.book-menu').hidden), 'Esc 应能收起词库菜单');
 
     await page.evaluate(() => { location.hash = '#/list'; });
-    await page.waitForFunction(() => document.querySelectorAll('.word-row').length === 2);
+    await page.waitForFunction(() => document.querySelectorAll('.word-row').length === 3);
 
     await page.click('[data-action="row-block"]');
-    await page.waitForFunction(() => document.querySelectorAll('.word-row').length === 1);
+    await page.waitForFunction(() => document.querySelectorAll('.word-row').length === 2);
     check((await bodyText()).includes('已屏蔽（1）'), '词表应出现已屏蔽入口');
     check((await page.textContent('.word-row .idx')).trim() === '1', '屏蔽后索引应从 1 重排');
 
@@ -233,10 +267,43 @@ async function main() {
     const report = await page.textContent('.center-col');
     check(report.includes('掌握度'), '报告页应有掌握度');
     check(report.includes('连续打卡'), '报告页应有打卡统计');
-    check(report.includes('未来 7 天复习量'), '报告页应有未来 7 天复习量');
-    check((await page.$$('.report-page .chart')).length === 2, '报告页应有近 7 天与未来 7 天两个图表');
-    check((await page.$$('.report-page .chart-col')).length === 14, '两个图表各 7 天');
+    check(report.includes('未来 7 天到期量'), '报告页应有未来 7 天到期量');
+    check((await page.$$('.report-page .chart')).length === 1, '报告页应有近 7 天柱状图');
+    check((await page.$$('.upcoming-line')).length === 1, '报告页应有未来 7 天折线图');
+    check((await page.$$('.heatmap-grid')).length === 1, '报告页应有一年打卡热力图');
+    check((await page.$$('.mode-stat-row')).length > 0, '报告页应有分题型统计');
+    check((await page.$$('.report-page .chart-col')).length === 7, '近 7 天柱状图应有 7 天');
     check((await page.$$('.tier-row')).length === 4, '掌握度应有四档');
+    check(Boolean(await page.$('#reportBook')), '掌握度应能筛选词表');
+    await page.selectOption('#reportBook', { label: '大学英语四级' });
+    await page.waitForTimeout(300);
+    check((await page.textContent('.report-title-row + .report-card')).includes('/ 4544 词'), '筛选词表后掌握度应只算该词表');
+    await page.selectOption('#reportBook', { index: 0 });
+    await page.waitForTimeout(300);
+
+    /* ---------- 已练词汇：右侧首字母区间 ---------- */
+    await page.evaluate(() => { location.hash = '#/studied'; });
+    await page.waitForSelector('.studied-layout');
+    const studiedLayout = await page.evaluate(() => {
+      const side = document.querySelector('.studied-side')?.getBoundingClientRect();
+      const main = document.querySelector('.studied-main')?.getBoundingClientRect();
+      return { side: side && side.toJSON(), main: main && main.toJSON() };
+    });
+    check(studiedLayout.side && studiedLayout.main && studiedLayout.side.left > studiedLayout.main.right - 1,
+      '首字母筛选应在主列表右侧');
+    const beforeLetterRows = await page.$$eval('.word-row', (els) => els.length);
+    if (beforeLetterRows > 0) {
+      const firstLetter = await page.$eval('.word-row .w', (el) => el.textContent.trim().charAt(0).toUpperCase());
+      await page.selectOption('#letterFrom', firstLetter);
+      await page.waitForTimeout(250);
+      await page.selectOption('#letterTo', firstLetter);
+      await page.waitForTimeout(250);
+      const ranged = await page.$$eval('.word-row .w', (els) => els.map((el) => el.textContent.trim().charAt(0).toUpperCase()));
+      check(ranged.every((ch) => ch === firstLetter), `首字母区间应只留 ${firstLetter}，实际 ${JSON.stringify(ranged)}`);
+      await page.click('[data-action="letter-reset"]');
+      await page.waitForTimeout(200);
+      check((await page.$$eval('.word-row', (els) => els.length)) === beforeLetterRows, '重置后应恢复全部已练词');
+    }
 
     /* ---------- 设置 / 隐私 ---------- */
     await page.evaluate(() => { location.hash = '#/settings'; });
@@ -331,6 +398,13 @@ async function main() {
       `实验性开关应保存，实际 ${JSON.stringify(experimentPrefs)}`);
     await page.evaluate(() => document.getElementById('varyDistractorsInput').click());
     await page.evaluate(() => document.getElementById('revealMeaningsInput').click());
+
+    /* ---------- 设置 → 学习 → 词库列表 ---------- */
+    await page.click('[data-action="books"]');
+    await page.waitForFunction(() => location.hash === '#/books');
+    check((await page.textContent('.center-col')).includes('词库管理'), '学习栏的词库列表应进入词库管理');
+    await page.evaluate(() => { location.hash = '#/settings'; });
+    await page.waitForSelector('.settings-grid');
 
     /* ---------- APK 版本与链接 ---------- */
     const apkHref = await page.getAttribute('a[href*="gitee.com"]', 'href');
@@ -489,7 +563,7 @@ async function main() {
       const meta = JSON.parse(localStorage.getItem('worddrill.db.meta'));
       return { books, sort, broken, log, mistake, review, version: meta.wordlistVersion };
     });
-    check(migrated.version === 3, `迁移后 wordlistVersion 应为 3，实际 ${migrated.version}`);
+    check(migrated.version === 4, `迁移后 wordlistVersion 应为 4，实际 ${migrated.version}`);
     check(migrated.broken === 0, 'v] 应已被替换');
     check(Boolean(migrated.sort && migrated.sort.id === 1 && migrated.sort.word === 'sort'), 'sort 应保留原 id');
     check(Boolean(migrated.sort && migrated.sort.starred), '星标应保留');

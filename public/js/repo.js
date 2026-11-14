@@ -2,7 +2,7 @@
  * 应用数据层：把 UI 需要的东西整理成一组异步函数。
  * 浏览器里直接读写本地存储，没有服务器、没有网络请求。
  */
-import { Store } from './store.js';
+import { Store, hasExampleCloze } from './store.js';
 import { buildItems, MODES, isCorrect } from './quiz.js';
 import { parseMarkdown, decodeText } from './vocab.js';
 import { parseAbout } from './about.js';
@@ -62,8 +62,8 @@ async function loadSeed() {
  */
 const BUILTIN_VERSION = 3;
 
-/** 内置词表内容版本：2 = 已修复吞词/坏词头；3 = 词性统一为 adj./adv.，loaf 释义加括号。 */
-const WORDLIST_VERSION = 3;
+/** 内置词表内容版本：2 修坏词头；3 词性统一；4 例句合并入两本词表。 */
+const WORDLIST_VERSION = 4;
 
 /** 下架过的内置词库：不再出现在清单里，也不再补种。 */
 const RETIRED_SEEDS = ['senior-ext'];
@@ -326,10 +326,10 @@ export function studied(bookId, filter = 'all', query = '') {
   };
 }
 
-export function answer(wordId, mode, correct) {
+export function answer(wordId, mode, correct, elapsedMs = 0) {
   const id = Number(wordId);
   if (!id) throw new Error('缺少单词');
-  requireStore().recordAnswer(id, MODES[mode] ? mode : 'en_zh', Boolean(correct));
+  requireStore().recordAnswer(id, MODES[mode] ? mode : 'en_zh', Boolean(correct), elapsedMs);
   return { ok: true };
 }
 
@@ -343,9 +343,11 @@ export function startPractice(body = {}) {
   const end = Number.isFinite(Number(body.end)) ? Number(body.end) : Number.MAX_SAFE_INTEGER;
   const filter = ['all', 'starred', 'mistakes'].includes(body.filter) ? body.filter : 'all';
   const ids = Array.isArray(body.wordIds) ? body.wordIds.map(Number) : [];
-  const words = ids.length > 0
+  const needExample = mode === 'ex_spell';
+  let words = ids.length > 0
     ? s.wordsByIds(ids)
-    : s.pickWords(book.id, { start, end, count, filter });
+    : s.pickWords(book.id, { start, end, count, filter, requireExample: needExample });
+  if (needExample) words = words.filter((w) => hasExampleCloze(w));
   const requested = ids.length > 0 ? ids.length : count;
   // 首次练习（从没答过）的词才显示「不再练习此单词」
   const practiced = new Set(s.db.practiceLog.map((p) => p.wordId));
@@ -379,14 +381,21 @@ export function dueReview(limit = 200, scope = 'due') {
 }
 
 /** 学习报告：近 days 天统计 + 掌握度 + 未来复习量 + 最该复习的词。 */
-export function report(days = 7, goal = 30) {
+export function report(days = 7, goal = 30, bookId = null) {
   const s = requireStore();
   return {
     summary: s.studySummary(days, goal),
-    mastery: s.masteryStats(null),
+    mastery: s.masteryStats(bookId == null ? null : Number(bookId)),
     upcoming: s.upcomingReview(days),
     wrong: s.topWrongWords(null, 8),
+    modeStats: s.modeStats(30),
+    heatmap: s.dailyHeatmap(365),
   };
+}
+
+/** 一年打卡热力图数据（5 档强度）。 */
+export function heatmap(days = 365) {
+  return requireStore().dailyHeatmap(days);
 }
 
 /**

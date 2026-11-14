@@ -2153,3 +2153,159 @@ button, .mode, .opt, .word-row, .drop { -webkit-tap-highlight-color: transparent
 
 /* 弹窗只留一个按钮时占满整行 */
 .mobile-tip-actions .btn:only-child { flex: 1 1 100%; }
+
+/* ---------- 例句填词长题面 ---------- */
+
+.prompt.long {
+  font-size: 21px;
+  line-height: 1.6;
+  white-space: pre-line;
+  text-align: left;
+}
+
+/* ---------- 未来 7 天折线 ---------- */
+
+.upcoming-line { display: block; width: 100%; height: auto; overflow: visible; }
+.line-grid { stroke: var(--divider); stroke-width: 1; }
+.line-area { fill: var(--brand); opacity: 0.1; }
+.line-path { fill: none; stroke: var(--brand); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.line-dot { fill: var(--surface); stroke: var(--brand); stroke-width: 2.5; }
+.line-count { fill: var(--text); font-size: 12px; font-weight: 700; }
+.line-label { fill: var(--hint); font-size: 12px; }
+
+/* ---------- 一年打卡热力图 ---------- */
+
+.heatmap { overflow-x: auto; padding-bottom: 2px; }
+.heatmap-grid {
+  display: grid;
+  grid-template-rows: repeat(7, 12px);
+  grid-auto-flow: column;
+  grid-auto-columns: 12px;
+  gap: 3px;
+  width: max-content;
+}
+.heatmap-days {
+  display: none;
+}
+.heat {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--chart-track);
+}
+.heat.is-blank { background: transparent; }
+.heat.lv-0 { background: var(--chart-track); }
+.heat.lv-1 { background: #cfe8d8; }
+.heat.lv-2 { background: #93d2ab; }
+.heat.lv-3 { background: #56b47e; }
+.heat.lv-4 { background: #238a55; }
+[data-theme="dark"] .heat.lv-1 { background: #2c4a39; }
+[data-theme="dark"] .heat.lv-2 { background: #37684c; }
+[data-theme="dark"] .heat.lv-3 { background: #3f8b5d; }
+[data-theme="dark"] .heat.lv-4 { background: #4fb478; }
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  margin-top: 9px;
+  color: var(--hint);
+  font-size: 11.5px;
+}
+.heatmap-legend .heat { width: 11px; height: 11px; }
+
+/* ---------- 最近 30 天分题型 ---------- */
+
+.mode-stats { display: flex; flex-direction: column; gap: 9px; }
+.mode-stat-row {
+  display: grid;
+  grid-template-columns: 72px minmax(48px, 1fr) 42px 58px 46px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.mode-stat-name { color: var(--text); font-weight: 600; white-space: nowrap; }
+.mode-stat-bar { height: 8px; border-radius: 999px; background: var(--chart-track); overflow: hidden; }
+.mode-stat-bar > i { display: block; height: 100%; border-radius: 999px; background: var(--brand); }
+.mode-stat-acc { text-align: right; color: var(--text); font-weight: 700; }
+.mode-stat-time,
+.mode-stat-total { text-align: right; color: var(--muted); white-space: nowrap; }
+
+/* ---------- 已练词汇：右侧首字母区间 ---------- */
+
+.studied-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 196px;
+  gap: 18px;
+  align-items: start;
+}
+.studied-side {
+  position: sticky;
+  top: 18px;
+  padding: 14px;
+  border: 1px solid var(--divider);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.studied-side .section-label { margin: 0 0 8px; }
+.letter-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.letter-range .field.compact { min-width: 0; flex: 1; padding: 0 6px; }
+.letter-range span { color: var(--hint); }
+
+@media (max-width: 900px) {
+  .studied-layout { grid-template-columns: 1fr; }
+  .studied-side { position: static; order: -1; }
+  .letter-range .field.compact { width: 100%; }
+}
+
+@media (max-width: 560px) {
+  .mode-stat-row { grid-template-columns: 64px minmax(36px, 1fr) 38px 52px; }
+  .mode-stat-total { display: none; }
+  .prompt.long { font-size: 18px; }
+}
+
+/* 五种练习方式：最后一张独占一行，避免落单半格 */
+@media (min-width: 761px) {
+  .home-page .mode:last-child:nth-child(odd) { grid-column: span 2; }
+}
+
+/* 题号文字宽度固定，避免做到第 100 题时把进度条起点挤到右边 */
+.practice-top {
+  display: grid;
+  grid-template-columns: 118px minmax(0, 1fr);
+  gap: 14px;
+}
+.practice-top .progress-text { width: 118px; }
+@media (max-width: 560px) {
+  .practice-top { grid-template-columns: 104px minmax(0, 1fr); gap: 10px; }
+  .practice-top .progress-text { width: 104px; font-size: 12px; }
+}
+
+/* 学习报告：掌握度可按词表筛选 */
+.report-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.report-title-row .section-label { margin: 0; }
+.report-title-row .field.compact {
+  height: 32px;
+  min-width: 128px;
+  max-width: 210px;
+  font-size: 12.5px;
+}
+
+/* 200 题时题号最长，宽度按三位数留足 */
+.practice-top { grid-template-columns: 136px minmax(0, 1fr); }
+.practice-top .progress-text { width: 136px; }
+@media (max-width: 560px) {
+  .practice-top { grid-template-columns: 118px minmax(0, 1fr); }
+  .practice-top .progress-text { width: 118px; }
+}

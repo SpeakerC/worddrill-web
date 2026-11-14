@@ -79,6 +79,7 @@ export function createStorage(options = {}) {
       practiceLog: readJSON('log', []),
       review: readJSON('review', []),
       daily: readJSON('daily', []),
+      answerLog: readJSON('answers', []),
     });
   }
 
@@ -90,6 +91,7 @@ export function createStorage(options = {}) {
     else if (part === 'log') storage.setItem(`${PREFIX}log`, JSON.stringify(db.practiceLog));
     else if (part === 'review') storage.setItem(`${PREFIX}review`, JSON.stringify(db.review));
     else if (part === 'daily') storage.setItem(`${PREFIX}daily`, JSON.stringify(db.daily));
+    else if (part === 'answers') storage.setItem(`${PREFIX}answers`, JSON.stringify(db.answerLog));
     else if (part === 'meta') {
       storage.setItem(`${PREFIX}meta`, JSON.stringify({
         version: db.version || 1,
@@ -134,6 +136,7 @@ export function createStorage(options = {}) {
     if (part === 'all') {
       dirty.add('meta'); dirty.add('books'); dirty.add('words');
       dirty.add('mistakes'); dirty.add('log'); dirty.add('review'); dirty.add('daily');
+      dirty.add('answers');
     } else {
       dirty.add(part);
       if (part === 'books' || part === 'words') dirty.add('meta');
@@ -144,14 +147,14 @@ export function createStorage(options = {}) {
   function clear() {
     dirty.clear();
     if (timer) { clearTimeout(timer); timer = 0; }
-    ['books', 'words', 'mistakes', 'log', 'review', 'daily', 'meta'].forEach((key) => {
+    ['books', 'words', 'mistakes', 'log', 'review', 'daily', 'answers', 'meta'].forEach((key) => {
       try { storage.removeItem(PREFIX + key); } catch { /* 忽略 */ }
     });
   }
 
   function usageBytes() {
     let total = 0;
-    for (const key of ['books', 'words', 'mistakes', 'log', 'review', 'daily', 'meta']) {
+    for (const key of ['books', 'words', 'mistakes', 'log', 'review', 'daily', 'answers', 'meta']) {
       try {
         const raw = storage.getItem(PREFIX + key);
         if (raw) total += raw.length * 2;

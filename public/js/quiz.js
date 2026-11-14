@@ -9,6 +9,7 @@ export const MODES = {
   zh_en: { label: '汉译英', desc: '看中文，从四个英文单词中选' },
   spell: { label: '单词默写', desc: '看中文，自己拼写英文' },
   listen: { label: '听音拼写', desc: '听发音，自己拼出英文单词' },
+  ex_spell: { label: '例句填词', desc: '看中文句意，填出例句里挖掉的单词' },
 };
 
 /** 需要出声的练习方式：英译汉（看词听音）和听音拼写。 */
@@ -24,6 +25,12 @@ export function normalize(input) {
 export function isCorrect(input, answer) {
   const value = normalize(input);
   return value.length > 0 && value === normalize(answer);
+}
+
+/** 除主答案外还接受其他写法（例句填词：原形和变形都算对）。 */
+export function isAcceptable(input, answer, accept = []) {
+  if (isCorrect(input, answer)) return true;
+  return (Array.isArray(accept) ? accept : []).some((item) => isCorrect(input, item));
 }
 
 /** 拼写提示：每个单词（空格/连字符分隔）首字母 + 下划线，空格显示为 /。 */
@@ -42,6 +49,37 @@ export function hint(answer) {
   return out;
 }
 
+/** 取词条例句：兼容拆好的 exampleEn/exampleZh 与 Android 的 ex="英文||中文"。 */
+export function exampleOf(word) {
+  if (!word) return { en: '', zh: '' };
+  if (word.exampleEn || word.exampleZh) {
+    return { en: String(word.exampleEn || '').trim(), zh: String(word.exampleZh || '').trim() };
+  }
+  const raw = String(word.ex || '').trim();
+  const at = raw.indexOf('||');
+  return at < 0
+    ? { en: raw, zh: '' }
+    : { en: raw.slice(0, at).trim(), zh: raw.slice(at + 2).trim() };
+}
+
+const escapeRe = (text) => String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * 把例句里第一次出现的目标词（含 abandoned / leaves 这类变形）换成 ____。
+ * 太短的词不挖（a / an 满篇都是）；没命中返回 null。
+ */
+export function blankExample(sentence, word) {
+  const base = String(word || '').trim();
+  const text = String(sentence || '');
+  if (base.length < 3 || !text.trim()) return null;
+  const match = new RegExp(`\\b${escapeRe(base)}[a-z]*\\b`, 'i').exec(text);
+  if (!match) return null;
+  return {
+    line: `${text.slice(0, match.index)}____${text.slice(match.index + match[0].length)}`,
+    token: match[0],
+  };
+}
+
 export function shuffled(list, rng = Math.random) {
   const copy = [...list];
   for (let i = copy.length - 1; i > 0; i -= 1) {
@@ -58,6 +96,27 @@ export function meaningOf(word) {
 
 export function makeItem(word, allWords, mode, rng = Math.random, options = {}) {
   const text = word.word ?? word.w;
+  if (mode === 'ex_spell') {
+    const example = exampleOf(word);
+    const blank = blankExample(example.en, text);
+    if (!blank) return makeItem(word, allWords, 'en_zh', rng, options);
+    return {
+      wordId: word.id,
+      word: text,
+      meaning: meaningOf(word),
+      starred: Boolean(word.starred),
+      prompt: `${example.zh || '把这句话补完整'}\n${blank.line}`,
+      answer: blank.token,
+      accept: [text],
+      options: [],
+      correctOption: -1,
+      optionMeanings: [],
+      spell: true,
+      listen: false,
+      longPrompt: true,
+      hint: hint(blank.token),
+    };
+  }
   if (mode === 'spell' || mode === 'listen') {
     const listen = mode === 'listen';
     return {
@@ -118,9 +177,13 @@ export function makeItem(word, allWords, mode, rng = Math.random, options = {}) 
 
 export function buildItems(words, allWords, count, mode, rng = Math.random, options = {}) {
   if (!Array.isArray(words) || words.length === 0 || count <= 0) return [];
+  const eligible = mode === 'ex_spell'
+    ? words.filter((word) => blankExample(exampleOf(word).en, word.word ?? word.w))
+    : words;
+  if (!eligible.length) return [];
   const seen = new Set();
   const picked = [];
-  for (const word of shuffled(words, rng)) {
+  for (const word of shuffled(eligible, rng)) {
     if (seen.has(word.id)) continue;
     seen.add(word.id);
     picked.push(word);

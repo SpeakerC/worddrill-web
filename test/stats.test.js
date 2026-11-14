@@ -206,3 +206,33 @@ test('删除词库会一起清掉复习排期', () => {
   assert.ok(!store.db.review.some((r) => r.wordId === word.id));
 });
 
+test('最近 30 天分题型正确率与平均用时', () => {
+  const store = tempStore();
+  const words = store.words(1);
+  store.recordAnswer(words[0].id, 'en_zh', true, 1000);
+  store.recordAnswer(words[0].id, 'en_zh', false, 3000);
+  store.recordAnswer(words[1].id, 'zh_en', true, 2000);
+
+  const byMode = new Map(store.modeStats(30).map((row) => [row.mode, row]));
+  assert.equal(byMode.get('en_zh').total, 2);
+  assert.equal(byMode.get('en_zh').correct, 1);
+  assert.equal(byMode.get('en_zh').accuracy, 50);
+  assert.equal(byMode.get('en_zh').avgMs, 2000);
+  assert.equal(byMode.get('zh_en').accuracy, 100);
+  assert.equal(byMode.get('zh_en').avgMs, 2000);
+});
+
+test('一年热力图：5 档强度，0/1–9/10–19/20–29/30+', () => {
+  const store = tempStore();
+  const now = new Date(2026, 10, 14, 12).getTime();
+  store.db.daily = [
+    { date: '2026-11-10', answered: 0, correct: 0 },
+    { date: '2026-11-11', answered: 5, correct: 5 },
+    { date: '2026-11-12', answered: 15, correct: 10 },
+    { date: '2026-11-13', answered: 25, correct: 20 },
+    { date: '2026-11-14', answered: 40, correct: 35 },
+  ];
+  const cells = store.dailyHeatmap(5, now);
+  assert.deepEqual(cells.map((c) => c.level), [0, 1, 2, 3, 4]);
+});
+

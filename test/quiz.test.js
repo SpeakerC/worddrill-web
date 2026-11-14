@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 
-import { hint, isCorrect, buildItems, OPTION_COUNT, normalize } from '../public/js/quiz.js';
+import { hint, isCorrect, buildItems, OPTION_COUNT, normalize, blankExample, exampleOf, isAcceptable } from '../public/js/quiz.js';
 
 function seeded(seed) {
   let a = seed >>> 0;
@@ -140,4 +140,31 @@ test('干扰项变化：默认固定，打开后从最像的候选里换', () =>
     varied.add([...item.options].sort().join('|'));
   }
   assert.ok(varied.size > 1, `打开变化后应出现多组选项，实际 ${varied.size} 组`);
+});
+
+test('例句填词：挖空原词/变形，原形和变形都算对，没有例句不出题', () => {
+  const word = {
+    id: 1,
+    word: 'abandon',
+    pos: 'v.',
+    meaning: '放弃',
+    exampleEn: 'He abandoned the plan yesterday.',
+    exampleZh: '他昨天放弃了这个计划。',
+  };
+  assert.deepEqual(exampleOf(word), { en: 'He abandoned the plan yesterday.', zh: '他昨天放弃了这个计划。' });
+  const blank = blankExample(word.exampleEn, word.word);
+  assert.equal(blank.token, 'abandoned');
+  assert.equal(blank.line, 'He ____ the plan yesterday.');
+
+  const [item] = buildItems([word], [word], 1, 'ex_spell', seeded(1));
+  assert.equal(item.spell, true);
+  assert.equal(item.answer, 'abandoned');
+  assert.equal(item.prompt, `他昨天放弃了这个计划。\nHe ____ the plan yesterday.`);
+  assert.ok(item.accept.includes('abandon'));
+  assert.ok(isAcceptable('abandon', item.answer, item.accept));
+  assert.ok(isAcceptable('Abandoned', item.answer, item.accept));
+  assert.ok(!isAcceptable('abandoning', item.answer, item.accept));
+
+  const noExample = { id: 2, word: 'plain', pos: 'a.', meaning: '简单的' };
+  assert.equal(buildItems([noExample], [noExample], 1, 'ex_spell').length, 0);
 });

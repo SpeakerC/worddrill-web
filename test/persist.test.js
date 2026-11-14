@@ -80,9 +80,11 @@ test('答题记录分开存放，不会重写词表', () => {
 
   assert.ok(storage.map.has('worddrill.db.mistakes'));
   assert.ok(storage.map.has('worddrill.db.log'));
+  assert.ok(storage.map.has('worddrill.db.answers'), '答题流水单独存一份');
   const reloaded = createStorage({ storage }).load();
   assert.equal(reloaded.mistakes.length, 1);
   assert.equal(reloaded.practiceLog[0].times, 1);
+  assert.equal(reloaded.answerLog.length, 1);
 });
 
 test('导出再导入，数据一致', () => {

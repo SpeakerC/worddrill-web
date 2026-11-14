@@ -28,6 +28,20 @@ test('三列表格与不带首尾竖线的行都能解析', () => {
   assert.equal(entries[1].meaning, '思维模式；心态');
 });
 
+test('导入第四列例句，英文和中文用 || 分隔；留空则没有例句', () => {
+  const text = [
+    '| 英文 | 词性 | 汉语 | 例句 |',
+    '|---|---|---|---|',
+    '| abandon | v. | 抛弃 | He abandoned the plan.||他放弃了这个计划。 |',
+    '| plain | a. | 简单的 |  |',
+  ].join('\n');
+  const entries = parseMarkdown(text);
+  assert.equal(entries.length, 2);
+  assert.equal(entries[0].exampleEn, 'He abandoned the plan.');
+  assert.equal(entries[0].exampleZh, '他放弃了这个计划。');
+  assert.ok(!('exampleEn' in entries[1]), '例句留空时不应生成空字段');
+});
+
 test('同一个词只保留第一次出现，大小写不敏感', () => {
   const entries = parseMarkdown('| Apple | n. | 苹果 |\n| apple | n. | 苹果（重复） |');
   assert.equal(entries.length, 1);

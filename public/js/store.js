@@ -34,6 +34,8 @@ export function emptyDb() {
     practiceLog: [],
     review: [],
     daily: [],
+    // 每次答题的流水：题型、对错、用时。只用于最近 30 天的分题型统计。
+    answerLog: [],
   };
 }
 
@@ -55,6 +57,32 @@ function normWordKey(word) {
   return normWordCase(word).toLowerCase();
 }
 
+/** 词条里的例句：支持拆好的 exampleEn/exampleZh，也兼容 Android 的 ex="英文||中文"。 */
+export function exampleFields(entry) {
+  if (!entry) return { exampleEn: '', exampleZh: '' };
+  if (entry.exampleEn || entry.exampleZh) {
+    return {
+      exampleEn: String(entry.exampleEn || '').trim(),
+      exampleZh: String(entry.exampleZh || '').trim(),
+    };
+  }
+  const raw = String(entry.ex || '').trim();
+  if (!raw) return { exampleEn: '', exampleZh: '' };
+  const at = raw.indexOf('||');
+  return at < 0
+    ? { exampleEn: raw, exampleZh: '' }
+    : { exampleEn: raw.slice(0, at).trim(), exampleZh: raw.slice(at + 2).trim() };
+}
+
+/** 例句里是否能挖出这个单词（含 abandoned / leaves 这类变形）。 */
+export function hasExampleCloze(word) {
+  const base = String((word && word.word) || '').trim();
+  const sentence = String((word && word.exampleEn) || '').trim();
+  if (base.length < 3 || !sentence) return false;
+  const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\b${escaped}[a-z]*\\b`, 'i').test(sentence);
+}
+
 /** 兼容旧备份 / 手工改过的数据：补全缺失字段与自增 id。 */
 export function normalizeDb(raw) {
   const db = { ...emptyDb(), ...(raw || {}) };
@@ -64,6 +92,7 @@ export function normalizeDb(raw) {
   db.practiceLog = Array.isArray(db.practiceLog) ? db.practiceLog : [];
   db.review = Array.isArray(db.review) ? db.review : [];
   db.daily = Array.isArray(db.daily) ? db.daily : [];
+  db.answerLog = Array.isArray(db.answerLog) ? db.answerLog : [];
   if (!Number.isFinite(raw && raw.nextBookId)) db.nextBookId = maxId(db.books) + 1;
   if (!Number.isFinite(raw && raw.nextWordId)) db.nextWordId = maxId(db.words) + 1;
   if (!Number.isFinite(raw && raw.seedVersion)) db.seedVersion = 0;
@@ -105,6 +134,7 @@ export class Store {
     };
     this.db.books.push(book);
     entries.forEach((entry, i) => {
+      const example = exampleFields(entry);
       this.db.words.push({
         id: this.db.nextWordId++,
         bookId: book.id,
@@ -112,6 +142,8 @@ export class Store {
         word: entry.w,
         pos: entry.pos || '',
         meaning: entry.m,
+        exampleEn: example.exampleEn,
+        exampleZh: example.exampleZh,
         starred: false,
         blocked: false,
         learned: false,
@@ -141,6 +173,7 @@ export class Store {
     this.db.words = this.db.words.filter((w) => !wordIds.has(w.id));
     this.db.mistakes = this.db.mistakes.filter((m) => !wordIds.has(m.wordId));
     this.db.practiceLog = this.db.practiceLog.filter((p) => !wordIds.has(p.wordId));
+    this.db.answerLog = (this.db.answerLog || []).filter((a) => !wordIds.has(a.wordId));
     this.db.review = this.db.review.filter((r) => !wordIds.has(r.wordId));
     this.change('all');
     return removedBooks.map((b) => b.name);
@@ -227,6 +260,7 @@ export class Store {
       this.db.words = this.db.words.filter((w) => !ids.has(w.id));
       this.db.mistakes = this.db.mistakes.filter((m) => !ids.has(m.wordId));
       this.db.practiceLog = this.db.practiceLog.filter((p) => !ids.has(p.wordId));
+      this.db.answerLog = (this.db.answerLog || []).filter((a) => !ids.has(a.wordId));
       this.db.review = this.db.review.filter((r) => !ids.has(r.wordId));
       removed.push(dupe.name);
     }
@@ -262,6 +296,7 @@ export class Store {
     this.db.words = this.db.words.filter((w) => !ids.has(w.id));
     this.db.mistakes = this.db.mistakes.filter((m) => !ids.has(m.wordId));
     this.db.practiceLog = this.db.practiceLog.filter((p) => !ids.has(p.wordId));
+    this.db.answerLog = (this.db.answerLog || []).filter((a) => !ids.has(a.wordId));
     this.db.review = this.db.review.filter((r) => !ids.has(r.wordId));
     this.change('all');
     return { merged: drop.size };
@@ -330,6 +365,7 @@ export class Store {
     this.db.words = this.db.words.filter((w) => w.bookId !== bookId);
     this.db.mistakes = this.db.mistakes.filter((m) => !ids.has(m.wordId));
     this.db.practiceLog = this.db.practiceLog.filter((p) => !ids.has(p.wordId));
+    this.db.answerLog = (this.db.answerLog || []).filter((a) => !ids.has(a.wordId));
     this.db.review = this.db.review.filter((r) => !ids.has(r.wordId));
     this.change('all');
     return true;
@@ -350,6 +386,8 @@ export class Store {
       learned,
       // 还能抽出来练的新词：没练过、也没标成已掌握
       fresh: visible.filter((w) => !practiced.has(w.id) && !w.learned).length,
+      // 有例句（例句填词只在有例句的词里抽）
+      examples: visible.filter((w) => hasExampleCloze(w)).length,
       range: visible.length ? { start: 1, end: visible.length } : null,
     };
   }
@@ -365,6 +403,8 @@ export class Store {
       word: word.word,
       pos: word.pos,
       meaning: word.meaning,
+      exampleEn: word.exampleEn || '',
+      exampleZh: word.exampleZh || '',
       starred: Boolean(word.starred),
       blocked: Boolean(word.blocked),
       learned: Boolean(word.learned),
@@ -516,9 +556,10 @@ export class Store {
    * 抽「新练习」的题：只抽从没练过的单词，已练过的留给「复习」。
    * 已掌握（learned）的单词任何时候都不再抽到，任何筛选条件都一样。
    */
-  pickWords(bookId, { start = 1, end = Number.MAX_SAFE_INTEGER, count = 20, filter = 'all' } = {}) {
+  pickWords(bookId, { start = 1, end = Number.MAX_SAFE_INTEGER, count = 20, filter = 'all', requireExample = false } = {}) {
     const index = this.indexMap(bookId);
     let list = this.visibleWords(bookId);
+    if (requireExample) list = list.filter((w) => hasExampleCloze(w));
     if (filter === 'starred' || filter === 'mistakes') {
       const allowed = filter === 'mistakes'
         ? new Set(this.db.mistakes.map((m) => m.wordId))
@@ -542,8 +583,9 @@ export class Store {
 
   // ---------- 答题记录 ----------
 
-  recordAnswer(wordId, mode, correct) {
+  recordAnswer(wordId, mode, correct, elapsedMs = 0) {
     const now = Date.now();
+    const ms = Math.max(0, Math.min(10 * 60 * 1000, Math.trunc(Number(elapsedMs) || 0)));
     const mistake = this.db.mistakes.find((m) => m.wordId === wordId);
     if (correct) {
       // 错题要连续答对 MISTAKE_CLEAR_STREAK 次才移出，答错一次就清零
@@ -599,10 +641,18 @@ export class Store {
       this.db.daily.push({ date: key, answered: 1, correct: correct ? 1 : 0 });
     }
 
+    // 每题的流水，只保留最近 10000 条；报告用它算 30 天分题型正确率与用时。
+    if (!Array.isArray(this.db.answerLog)) this.db.answerLog = [];
+    this.db.answerLog.push({ at: now, wordId, mode, correct: Boolean(correct), ms });
+    if (this.db.answerLog.length > 10000) {
+      this.db.answerLog = this.db.answerLog.slice(-10000);
+    }
+
     this.change('mistakes');
     this.change('log');
     this.change('review');
     this.change('daily');
+    this.change('answers');
   }
 
   // ---------- 复习 / 统计 ----------
@@ -832,6 +882,45 @@ export class Store {
     });
   }
 
+  /**
+   * 最近 days 天分题型统计：题量、正确率、平均用时（毫秒）。
+   * 数据来自 answerLog（新版本才开始记）；老数据没有流水时返回空数组。
+   */
+  modeStats(days = 30, now = Date.now()) {
+    const keys = recentDayKeys(days, now);
+    const allowed = new Set(keys);
+    const buckets = new Map();
+    for (const item of this.db.answerLog) {
+      if (!item || !item.mode) continue;
+      if (!allowed.has(dayKey(new Date(item.at || 0)))) continue;
+      const bucket = buckets.get(item.mode) || { mode: item.mode, total: 0, correct: 0, ms: 0, timed: 0 };
+      bucket.total += 1;
+      if (item.correct) bucket.correct += 1;
+      if (item.ms > 0) { bucket.ms += item.ms; bucket.timed += 1; }
+      buckets.set(item.mode, bucket);
+    }
+    return [...buckets.values()]
+      .map((b) => ({
+        ...b,
+        accuracy: b.total ? Math.round((b.correct * 100) / b.total) : 0,
+        avgMs: b.timed ? Math.round(b.ms / b.timed) : 0,
+      }))
+      .sort((a, b) => b.total - a.total);
+  }
+
+  /**
+   * 一年打卡热力图：每天一格，5 档强度。
+   * 0 没练；1–9 / 10–19 / 20–29 / 30+ 题分别为 1–4 档。
+   */
+  dailyHeatmap(days = 365, now = Date.now()) {
+    const map = new Map(this.db.daily.map((d) => [d.date, d.answered || 0]));
+    return recentDayKeys(days, now).map((date) => {
+      const answered = map.get(date) || 0;
+      const level = answered <= 0 ? 0 : (answered < 10 ? 1 : (answered < 20 ? 2 : (answered < 30 ? 3 : 4)));
+      return { date, answered, level };
+    });
+  }
+
   /** 学习报告需要的汇总。 */
   studySummary(days = 7, goal = 30, now = Date.now()) {
     const stats = this.dailyStats(days, now);
@@ -862,7 +951,9 @@ export class Store {
 
   clearPracticeLog() {
     this.db.practiceLog = [];
+    this.db.answerLog = [];
     this.change('log');
+    this.change('answers');
   }
 
   // ---------- 重建内置词库 ----------
@@ -1025,6 +1116,7 @@ export class Store {
       spec.entries.forEach((entry, index) => {
         const wordText = String(entry.w || '').trim();
         if (!wordText) return;
+        const example = exampleFields(entry);
         const key = normWordKey(wordText);
         let target = take(wordText);
         const pendingList = pending.get(key) || [];
@@ -1064,6 +1156,8 @@ export class Store {
             word: wordText,
             pos: String(entry.pos || ''),
             meaning: String(entry.m || ''),
+            exampleEn: example.exampleEn,
+            exampleZh: example.exampleZh,
             starred: false,
             blocked: false,
             learned: false,
@@ -1078,6 +1172,8 @@ export class Store {
         target.ord = index + 1;
         target.pos = String(entry.pos || '');
         target.meaning = String(entry.m || '');
+        target.exampleEn = example.exampleEn;
+        target.exampleZh = example.exampleZh;
         target.starred = Boolean(target.starred);
         target.blocked = Boolean(target.blocked);
         target.learned = Boolean(target.learned);
@@ -1100,6 +1196,7 @@ export class Store {
     this.db.words = [...untouched, ...rebuilt];
     if (removeIds.size) {
       this.db.practiceLog = this.db.practiceLog.filter((p) => !removeIds.has(p.wordId));
+      this.db.answerLog = (this.db.answerLog || []).filter((a) => !removeIds.has(a.wordId));
       this.db.mistakes = this.db.mistakes.filter((m) => !removeIds.has(m.wordId));
       this.db.review = this.db.review.filter((r) => !removeIds.has(r.wordId));
     }
@@ -1131,6 +1228,7 @@ export class Store {
     for (const entry of entries) {
       const word = String(entry.word || '').trim();
       const meaning = String(entry.meaning || '').trim();
+      const example = exampleFields(entry);
       if (!word || !meaning) {
         skipped += 1;
         continue;
@@ -1149,6 +1247,8 @@ export class Store {
         word,
         pos: String(entry.pos || '').trim(),
         meaning,
+        exampleEn: example.exampleEn,
+        exampleZh: example.exampleZh,
         starred: false,
         blocked: false,
         learned: false,

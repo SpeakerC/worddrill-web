@@ -19,6 +19,16 @@ function isValidWord(word) {
   return Boolean(word) && /\p{L}/u.test(word) && !word.includes('|');
 }
 
+/** 例句列：英文||中文（也接受只有英文）。 */
+function parseExample(raw) {
+  const text = cleanCell(raw);
+  if (!text) return { exampleEn: '', exampleZh: '' };
+  const at = text.indexOf('||');
+  return at < 0
+    ? { exampleEn: text, exampleZh: '' }
+    : { exampleEn: text.slice(0, at).trim(), exampleZh: text.slice(at + 2).trim() };
+}
+
 /**
  * 解析 Markdown 词汇表：三列或四列（首列序号会被忽略）。
  * 去重按英文小写，保留首次出现的顺序。
@@ -29,7 +39,10 @@ export function parseMarkdown(markdown) {
   for (const rawLine of String(markdown).split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line.includes('|')) continue;
-    const cells = line.replace(/^\|/, '').replace(/\|$/, '').split('|').map(cleanCell);
+    // 例句用「英文||中文」分隔，竖线本身会打断表格；先换成占位符再拆列。
+    const safeLine = line.replace(/\|\|/g, '\u0001');
+    const cells = safeLine.replace(/^\|/, '').replace(/\|$/, '').split('|')
+      .map((cell) => cleanCell(cell).replace(/\u0001/g, '||'));
     if (cells.length === 0) continue;
     if (cells.every((c) => c === '')) continue;
     if (cells.every((c) => SEPARATOR.test(c))) continue;
@@ -39,7 +52,11 @@ export function parseMarkdown(markdown) {
     let word;
     let pos;
     let meaning;
-    if (body.length >= 3) {
+    let example = { exampleEn: '', exampleZh: '' };
+    if (body.length >= 4) {
+      [word, pos, meaning] = body;
+      example = parseExample(body[3]);
+    } else if (body.length === 3) {
       [word, pos, meaning] = body;
     } else if (body.length === 2) {
       word = body[0];
@@ -51,7 +68,14 @@ export function parseMarkdown(markdown) {
     if (!isValidWord(word) || !meaning) continue;
     const key = word.toLowerCase();
     if (out.has(key)) continue;
-    out.set(key, { word: word.trim(), pos: (pos || '').trim(), meaning: meaning.trim() });
+    const entry = {
+      word: word.trim(),
+      pos: (pos || '').trim(),
+      meaning: meaning.trim(),
+    };
+    if (example.exampleEn) entry.exampleEn = example.exampleEn;
+    if (example.exampleZh) entry.exampleZh = example.exampleZh;
+    out.set(key, entry);
   }
   return [...out.values()];
 }

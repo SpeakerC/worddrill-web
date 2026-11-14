@@ -4,6 +4,7 @@ import * as settings from './js/settings.js';
 import { speak, supported as speechSupported, warmup as warmupSpeech } from './js/speech.js';
 import { applyTheme, themePref, setThemePref, watchSystem } from './js/theme.js';
 import { mistakesCsv, csvFileName, CSV_BOM } from './js/csv.js';
+import { isAcceptable } from './js/quiz.js';
 
 /* ============================================================
  * 单词练习 · 前端（纯静态版，数据存在浏览器里）
@@ -47,6 +48,9 @@ const state = {
   mistakeSort: 'recent',
   listLimit: 200,
   search: '',
+  letterFrom: '',
+  letterTo: '',
+  reportBookId: null,
   importBookId: null,
   searchTimer: null,
 };
@@ -586,7 +590,9 @@ async function startPractice(options, wordIds = null, filter = 'all', bookName =
   if (bookName) payload.bookName = bookName;
   const data = repo.startPractice(payload);
   if (!data.items.length) {
-    toast(wordIds ? '没有可练习的单词' : '这个范围里没有没练过的单词，去「复习」练已练过的吧');
+    toast(state.mode === 'ex_spell'
+      ? '当前词库没有带例句的词，先导入例句列或换一种练习方式'
+      : (wordIds ? '没有可练习的单词' : '这个范围里没有没练过的单词，去「复习」练已练过的吧'));
     return;
   }
   state.practice = {
@@ -600,6 +606,7 @@ async function startPractice(options, wordIds = null, filter = 'all', bookName =
     bookName: data.bookName,
     requested: data.requested,
     spokenKey: '',
+    questionAt: Date.now(),
   };
   if (data.items.length < data.requested) toast(`可抽的单词不足，本轮只有 ${data.items.length} 题`);
   location.hash = '#/practice';
@@ -607,6 +614,10 @@ async function startPractice(options, wordIds = null, filter = 'all', bookName =
 
 async function startPracticeFromHome() {
   try {
+    if (state.mode === 'ex_spell' && !(state.stats && state.stats.examples)) {
+      toast('当前词库没有带例句的词，先导入例句列或换一种练习方式');
+      return;
+    }
     const settings = readSettings();
     await startPractice(settings);
   } catch (err) {
@@ -619,15 +630,18 @@ function renderPractice() {
   if (!p) { location.hash = '#/'; return; }
   const item = p.items[p.index];
   const total = p.items.length;
-  const percent = Math.round(((p.index + (p.answered ? 1 : 0)) / total) * 100);
+  const percent = total ? Math.min(100, Math.round((p.records.length / total) * 100)) : 0;
   const isSpell = item.spell;
   const isListen = p.mode === 'listen';
+  const isExample = p.mode === 'ex_spell';
   const canHear = p.mode === 'en_zh' || isListen;
 
   let body;
   if (isSpell) {
     const disabled = p.answered ? 'disabled' : '';
-    const placeholder = isListen ? '听发音，写出这个单词' : '输入英文，回车提交';
+    const placeholder = isListen
+      ? '听发音，写出这个单词'
+      : (isExample ? '填出例句里挖掉的词' : '输入英文，回车提交');
     body = `
       <div class="spell-box">
         <div class="spell-hint">${esc(item.hint)}　(${item.answer.length} 个字母)</div>
@@ -678,8 +692,8 @@ function renderPractice() {
       </div>
 
       <div class="prompt-card ${canHear ? 'tappable' : ''}" ${canHear ? 'data-action="speak" title="点一下再听一遍"' : ''}>
-        <div class="prompt-label">${isListen ? '听 发 音' : (isSpell || p.mode === 'zh_en' ? '中 文 释 义' : '英 文')}</div>
-        <div class="prompt">${esc(item.prompt)}</div>
+        <div class="prompt-label">${isListen ? '听 发 音' : (isExample ? '例 句 填 词' : (isSpell || p.mode === 'zh_en' ? '中 文 释 义' : '英 文'))}</div>
+        <div class="prompt${item.longPrompt ? ' long' : ''}">${esc(item.prompt)}</div>
         ${canHear && !isListen ? '<div class="speak-tip">点一下再听一遍</div>' : ''}
       </div>
 
@@ -773,6 +787,12 @@ function speakWord(text) {
   }
 }
 
+/** 当前题从出现到作答的毫秒数；没有记录时返回 0。 */
+function questionElapsed(p) {
+  if (!p || !p.questionAt) return 0;
+  return Math.max(0, Date.now() - p.questionAt);
+}
+
 /** 「我不会」：直接记为答错，进错题本并揭晓答案。 */
 function markUnknown() {
   const p = state.practice;
@@ -780,13 +800,14 @@ function markUnknown() {
   const item = p.items[p.index];
   p.answered = true;
   p.choice = null;
+  const elapsedMs = questionElapsed(p);
   p.records.push({
     wordId: item.wordId, word: item.word, meaning: item.meaning,
-    answer: item.answer, userAnswer: '我不会', correct: false,
+    answer: item.answer, userAnswer: '我不会', correct: false, elapsedMs,
   });
   renderPractice();
   try {
-    repo.answer(item.wordId, p.mode, false);
+    repo.answer(item.wordId, p.mode, false, elapsedMs);
   } catch (err) {
     toast(err.message);
   }
@@ -821,6 +842,7 @@ function markLearned() {
   p.choice = null;
   p.input = '';
   p.spokenKey = '';
+  p.questionAt = Date.now();
   renderPractice();
 }
 
@@ -841,13 +863,14 @@ async function answerOption(index) {
   p.choice = index;
   const correct = index === item.correctOption;
   const userAnswer = item.options[index] || '';
+  const elapsedMs = questionElapsed(p);
   p.records.push({
     wordId: item.wordId, word: item.word, meaning: item.meaning,
-    answer: item.answer, userAnswer, correct,
+    answer: item.answer, userAnswer, correct, elapsedMs,
   });
   renderPractice();
   try {
-    repo.answer(item.wordId, p.mode, correct);
+    repo.answer(item.wordId, p.mode, correct, elapsedMs);
   } catch (err) {
     toast(err.message);
   }
@@ -859,17 +882,17 @@ async function submitSpell() {
   const item = p.items[p.index];
   const input = (document.getElementById('spellInput') || {}).value || p.input || '';
   if (!input.trim()) { toast('先输入你记得的英文'); return; }
-  const normalize = (s) => String(s).trim().toLowerCase().replace(/\s+/g, ' ');
-  const correct = normalize(input) !== '' && normalize(input) === normalize(item.answer);
+  const correct = isAcceptable(input, item.answer, item.accept);
+  const elapsedMs = questionElapsed(p);
   p.answered = true;
   p.input = input;
   p.records.push({
     wordId: item.wordId, word: item.word, meaning: item.meaning,
-    answer: item.answer, userAnswer: input, correct,
+    answer: item.answer, userAnswer: input, correct, elapsedMs,
   });
   renderPractice();
   try {
-    repo.answer(item.wordId, p.mode, correct);
+    repo.answer(item.wordId, p.mode, correct, elapsedMs);
   } catch (err) {
     toast(err.message);
   }
@@ -882,6 +905,7 @@ function nextQuestion() {
   p.answered = false;
   p.choice = null;
   p.input = '';
+  p.questionAt = Date.now();
   if (p.index >= p.items.length) {
     state.result = { mode: p.mode, bookName: p.bookName, records: p.records };
     state.practice = null;
@@ -1211,13 +1235,45 @@ function dueText(dueAt, now = Date.now()) {
   return `${days} 天后`;
 }
 
+/** 已练词汇的右侧首字母区间筛选。 */
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
+function letterBounds() {
+  let from = state.letterFrom || '';
+  let to = state.letterTo || '';
+  if (from && to && from > to) [from, to] = [to, from];
+  return { from, to };
+}
+
+function filterByInitial(words) {
+  const { from, to } = letterBounds();
+  if (!from && !to) return words;
+  return words.filter((w) => {
+    const ch = String(w.word || '').trim().charAt(0).toUpperCase();
+    if (!/^[A-Z]$/.test(ch)) return false;
+    if (from && ch < from) return false;
+    if (to && ch > to) return false;
+    return true;
+  });
+}
+
+function studiedData(book, filter) {
+  const data = repo.studied(book.id, filter, state.search || '');
+  return { ...data, words: filterByInitial(data.words) };
+}
+
+function letterOptions(selected) {
+  return `<option value="">不限</option>${LETTERS.map((ch) => `<option value="${ch}"${selected === ch ? ' selected' : ''}>${ch}</option>`).join('')}`;
+}
+
 async function renderStudied() {
   const book = currentBook();
   if (!book) { location.hash = '#/'; return; }
   const filter = state.studiedFilter;
-  const data = repo.studied(book.id, filter, state.search || '');
+  const data = studiedData(book, filter);
   state.listData = { words: data.words };
   const c = data.counts;
+  const { from, to } = letterBounds();
 
   const tabs = [
     ['all', '全部', c.all],
@@ -1232,39 +1288,61 @@ async function renderStudied() {
   app.innerHTML = `
     <div class="center-col wide studied-page">
       ${pageHead('已练词汇', '', '#/', true)}
-      ${c.all ? `<div class="seg-group">${tabs}</div>
-      <div class="toolbar-row">
-        <input id="searchInput" class="search" placeholder="搜索单词或释义" value="${esc(state.search)}">
-      </div>` : ''}
-      <div class="list-meta" id="listMeta">${studiedMeta(filter, data)}</div>
-      <div id="listRows">${studiedRowsHtml(data.words)}</div>
-      ${c.all ? `<div class="footer-actions" style="margin-top:16px">
-        <button class="btn block" data-action="studied-practice" ${data.words.length ? '' : 'disabled'}>练习这些单词</button>
-      </div>` : ''}
+      ${c.all ? `<div class="seg-group">${tabs}</div>` : ''}
+      <div class="studied-layout">
+        <div class="studied-main">
+          ${c.all ? `<div class="toolbar-row">
+            <input id="searchInput" class="search" placeholder="搜索单词或释义" value="${esc(state.search)}">
+          </div>` : ''}
+          <div class="list-meta" id="listMeta">${studiedMeta(filter, data)}</div>
+          <div id="listRows">${studiedRowsHtml(data.words)}</div>
+          ${c.all ? `<div class="footer-actions" style="margin-top:16px">
+            <button class="btn block" data-action="studied-practice" ${data.words.length ? '' : 'disabled'}>练习这些单词</button>
+          </div>` : ''}
+        </div>
+        ${c.all ? `<aside class="studied-side">
+          <div class="section-label">首字母区间</div>
+          <div class="letter-range">
+            <select id="letterFrom" class="field compact" aria-label="首字母起始">${letterOptions(from)}</select>
+            <span>–</span>
+            <select id="letterTo" class="field compact" aria-label="首字母结束">${letterOptions(to)}</select>
+          </div>
+          <button class="btn ghost small block" data-action="letter-reset" style="margin-top:10px">全部字母</button>
+          <div class="hint" style="margin-top:10px">${from || to ? `${from || 'A'} – ${to || 'Z'}` : '当前不限'} · ${data.words.length} 个词</div>
+        </aside>` : ''}
+      </div>
     </div>`;
+
+  const refresh = () => {
+    const fresh = studiedData(book, filter);
+    state.listData = { words: fresh.words };
+    document.getElementById('listRows').innerHTML = studiedRowsHtml(fresh.words);
+    document.getElementById('listMeta').textContent = studiedMeta(filter, fresh);
+    const btn = document.querySelector('[data-action="studied-practice"]');
+    if (btn) btn.disabled = fresh.words.length === 0;
+  };
 
   const search = document.getElementById('searchInput');
   if (search) {
     search.addEventListener('input', () => {
       state.search = search.value;
       clearTimeout(state.searchTimer);
-      state.searchTimer = setTimeout(() => {
-        const fresh = repo.studied(currentBook().id, filter, state.search || '');
-        state.listData = { words: fresh.words };
-        document.getElementById('listRows').innerHTML = studiedRowsHtml(fresh.words);
-        document.getElementById('listMeta').textContent = studiedMeta(filter, fresh);
-        const btn = document.querySelector('[data-action="studied-practice"]');
-        if (btn) btn.disabled = fresh.words.length === 0;
-      }, 220);
+      state.searchTimer = setTimeout(refresh, 220);
     });
   }
+  const fromSelect = document.getElementById('letterFrom');
+  const toSelect = document.getElementById('letterTo');
+  if (fromSelect) fromSelect.addEventListener('change', () => { state.letterFrom = fromSelect.value; renderStudied(); });
+  if (toSelect) toSelect.addEventListener('change', () => { state.letterTo = toSelect.value; renderStudied(); });
 }
 
 function studiedMeta(filter, data) {
   if (!data.counts.all) return '这个词库还没有练过的词，先去练一轮吧';
   if (!data.words.length) return '没有符合条件的单词';
   const label = { all: '练过的词', unmastered: '还没掌握', mastered: '已掌握', forgetting: '易忘' }[filter] || '';
-  return `${label} ${data.words.length} 个 · 快到期的在前`;
+  const { from, to } = letterBounds();
+  const range = from || to ? ` · 首字母 ${from || 'A'}–${to || 'Z'}` : '';
+  return `${label} ${data.words.length} 个${range} · 快到期的在前`;
 }
 
 function studiedRowsHtml(words) {
@@ -1421,11 +1499,11 @@ async function renderImport() {
     <div class="center-col">
       <div class="import-tip">
         <div class="import-tip-title">可以把词表发给你惯用的 AI，让它按下面的格式整理：</div>
-        <pre class="import-tip-format">| 英文 | 词性 | 汉语 |
-|---|---|---|
-| competence | n. | 能力；胜任 |
-| abandon | v. | 抛弃，舍弃 |</pre>
-        <div class="import-tip-note">三列即可；没有词性就在词性处留空。序号列可留可不留。</div>
+        <pre class="import-tip-format">| 英文 | 词性 | 汉语 | 例句 |
+|---|---|---|---|
+| competence | n. | 能力；胜任 | He has great competence.||他很有能力。 |
+| abandon | v. | 抛弃，舍弃 | He abandoned the plan.||他放弃了这个计划。 |</pre>
+        <div class="import-tip-note">四列即可；没有词性就在词性处留空。序号列可留可不留。例句列可留空；只有填了例句的词才能用「例句填词」，英文和中文用 <code>||</code> 分隔。</div>
       </div>
       <div class="card">
         <label class="hint" for="nameInput">词库名称</label>
@@ -1442,10 +1520,10 @@ async function renderImport() {
 
         <div class="divider"></div>
 
-        <div class="hint" style="margin-bottom:8px">或者直接粘贴表格内容（支持三列 / 四列，序号会被忽略）</div>
-        <textarea id="markdownInput" class="input" placeholder="| 英文 | 词性 | 汉语 |
-|---|---|---|
-| competence | n. | 能力；胜任 |"></textarea>
+        <div class="hint" style="margin-bottom:8px">或者直接粘贴表格内容（支持三列 / 四列，序号会被忽略；第四列为例句）</div>
+        <textarea id="markdownInput" class="input" placeholder="| 英文 | 词性 | 汉语 | 例句 |
+|---|---|---|---|
+| competence | n. | 能力；胜任 | He has great competence.||他很有能力。 |"></textarea>
 
         <div class="preview" id="preview" hidden></div>
 
@@ -1503,7 +1581,10 @@ function showPreview(data) {
     return;
   }
   const sample = data.entries.slice(0, 5)
-    .map((e) => `· ${e.word}  ${e.pos}  ${e.meaning}`)
+    .map((e) => {
+      const ex = e.exampleEn ? `  〔例〕${e.exampleEn}` : '';
+      return `· ${e.word}  ${e.pos}  ${e.meaning}${ex}`;
+    })
     .join('\n');
   const more = data.entries.length > 5 ? '\n…' : '';
   preview.textContent = `解析到 ${data.total} 条（按出现顺序入库）：\n${sample}${more}`;
@@ -1556,10 +1637,68 @@ async function saveImport() {
 
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
+/** 未来 7 天到期量折线：逾期和窗口外都已由 store 并入今天。 */
+function upcomingLineChart(upcoming) {
+  const width = 560;
+  const height = 148;
+  const pad = { top: 24, right: 10, bottom: 26, left: 10 };
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const max = Math.max(1, ...upcoming.map((d) => d.count));
+  const points = upcoming.map((day, i) => {
+    const x = pad.left + (upcoming.length <= 1 ? innerW / 2 : (innerW * i) / (upcoming.length - 1));
+    const y = pad.top + innerH - (day.count / max) * innerH;
+    const weekday = new Date(`${day.date}T12:00:00`).getDay();
+    return { ...day, x, y, label: i === 0 ? '今天' : `周${WEEKDAY[weekday]}` };
+  });
+  const line = points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const area = `${pad.left},${pad.top + innerH} ${line} ${pad.left + innerW},${pad.top + innerH}`;
+  const grid = [0, 1, 2, 3].map((i) => {
+    const y = pad.top + (innerH * i) / 3;
+    return `<line x1="${pad.left}" y1="${y}" x2="${pad.left + innerW}" y2="${y}" class="line-grid" />`;
+  }).join('');
+  const dots = points.map((p) => `
+    <circle cx="${p.x}" cy="${p.y}" r="4" class="line-dot"><title>${esc(p.date)} · ${p.count} 词</title></circle>
+    <text x="${p.x}" y="${Math.max(12, p.y - 10)}" text-anchor="middle" class="line-count">${p.count || ''}</text>
+    <text x="${p.x}" y="${height - 7}" text-anchor="middle" class="line-label">${p.label}</text>
+  `).join('');
+  return `
+    <svg class="upcoming-line" viewBox="0 0 ${width} ${height}" role="img"
+         aria-label="未来 7 天到期量折线图">
+      ${grid}
+      <polygon points="${area}" class="line-area" />
+      <polyline points="${line}" class="line-path" />
+      ${dots}
+    </svg>`;
+}
+
+/** 一年打卡热力图：5 档颜色，周一排在最上面。 */
+function heatmapHtml(cells) {
+  const first = new Date(`${cells[0].date}T12:00:00`);
+  const leading = (first.getDay() + 6) % 7;
+  const all = [...Array.from({ length: leading }, () => null), ...cells];
+  while (all.length % 7) all.push(null);
+  const body = all.map((cell) => (cell
+    ? `<span class="heat lv-${cell.level}" title="${esc(cell.date)} · ${cell.answered} 题"></span>`
+    : '<span class="heat is-blank"></span>')).join('');
+  return `
+    <div class="heatmap">
+      <div class="heatmap-days"><span>一</span><span>三</span><span>五</span><span>日</span></div>
+      <div class="heatmap-grid">${body}</div>
+      <div class="heatmap-legend">
+        <span>少</span>
+        <i class="heat lv-0"></i><i class="heat lv-1"></i><i class="heat lv-2"></i><i class="heat lv-3"></i><i class="heat lv-4"></i>
+        <span>多</span>
+      </div>
+    </div>`;
+}
+
 async function renderReport() {
   app.classList.add('on-report');
   const goal = settings.dailyGoal();
-  const { summary, mastery, wrong, upcoming } = repo.report(7, goal);
+  const validReportBook = state.books.some((b) => b.id === state.reportBookId);
+  if (!validReportBook) state.reportBookId = null;
+  const { summary, mastery, wrong, upcoming, modeStats, heatmap } = repo.report(7, goal, state.reportBookId);
   const accuracy = summary.totalAnswered
     ? Math.round((summary.totalCorrect * 100) / summary.totalAnswered)
     : 0;
@@ -1587,19 +1726,26 @@ async function renderReport() {
   const hasReview = reviewTotal > 0;
 
   // 未来 7 天复习量：柱子上标数量，今天优先
-  const maxFuture = Math.max(...upcoming.map((d) => d.count), 1);
-  const futureChart = upcoming.map((day, i) => {
-    const height = Math.round((day.count / maxFuture) * 100);
-    const ms = new Date(`${day.date}T12:00:00`).getDay();
-    const label = i === 0 ? '今天' : WEEKDAY[ms];
-    return `
-      <div class="chart-col${i === 0 ? ' today' : ''}" title="${esc(day.date)} · ${day.count} 词">
-        <div class="chart-bar"><i style="height:${height}%"></i></div>
-        <div class="chart-label">${label}</div>
-        <div class="chart-count">${day.count || ''}</div>
-      </div>`;
-  }).join('');
+  const futureLine = upcomingLineChart(upcoming);
   const futureTotal = upcoming.reduce((n, d) => n + d.count, 0);
+  const heatmapBody = heatmapHtml(heatmap);
+  const modeRows = modeStats.length
+    ? modeStats.map((item) => {
+      const label = (state.modes[item.mode] || {}).label || item.mode;
+      const avg = item.avgMs > 0 ? `${(item.avgMs / 1000).toFixed(1)} 秒` : '—';
+      return `<div class="mode-stat-row">
+        <span class="mode-stat-name">${esc(label)}</span>
+        <span class="mode-stat-bar"><i style="width:${item.accuracy}%"></i></span>
+        <span class="mode-stat-acc">${item.accuracy}%</span>
+        <span class="mode-stat-time">${avg}</span>
+        <span class="mode-stat-total">${item.total} 题</span>
+      </div>`;
+    }).join('')
+    : '<div class="hint">最近 30 天还没有答题记录</div>';
+  const reportBookOptions = [
+    `<option value="">全部词库</option>`,
+    ...state.books.map((b) => `<option value="${b.id}"${state.reportBookId === b.id ? ' selected' : ''}>${esc(b.name)}</option>`),
+  ].join('');
 
   app.innerHTML = `
     <div class="center-col wide report-page">
@@ -1650,12 +1796,12 @@ async function renderReport() {
         </section>
 
         <section class="report-tile">
-          <div class="section-label">未来 7 天复习量</div>
+          <div class="section-label">未来 7 天到期量</div>
           <div class="card report-card">
-            <div class="chart">${futureChart}</div>
+            ${futureLine}
             <div class="divider"></div>
             <div class="report-facts">
-              <div><b>${upcoming[0] ? upcoming[0].count : 0}</b><span>今天该复习</span></div>
+              <div><b>${upcoming[0] ? upcoming[0].count : 0}</b><span>今天该复习（含逾期）</span></div>
               <div><b>${futureTotal}</b><span>7 天内合计</span></div>
               <div><b>${reviewTotal}</b><span>练过的总数</span></div>
             </div>
@@ -1663,7 +1809,26 @@ async function renderReport() {
         </section>
 
         <section class="report-tile">
-          <div class="section-label">掌握度</div>
+          <div class="section-label">最近 30 天分题型</div>
+          <div class="card report-card">
+            <div class="mode-stats">${modeRows}</div>
+            <div class="hint" style="margin-top:10px">正确率与平均用时来自最近 30 天的答题流水。</div>
+          </div>
+        </section>
+
+        <section class="report-tile span-2">
+          <div class="section-label">一年打卡</div>
+          <div class="card report-card">
+            ${heatmapBody}
+            <div class="hint" style="margin-top:8px">每格一天，颜色越深答题越多；0 / 1–9 / 10–19 / 20–29 / 30+ 题。</div>
+          </div>
+        </section>
+
+        <section class="report-tile">
+          <div class="report-title-row">
+            <div class="section-label">掌握度</div>
+            <select id="reportBook" class="field compact" aria-label="筛选词表">${reportBookOptions}</select>
+          </div>
           <div class="card report-card">
             <div class="report-figure">
               <div class="figure-num">${mastery.masteredPercent}<em>%</em></div>
@@ -1716,6 +1881,14 @@ async function renderReport() {
         </section>
       </div>
     </div>`;
+
+  const reportBook = document.getElementById('reportBook');
+  if (reportBook) {
+    reportBook.addEventListener('change', () => {
+      state.reportBookId = reportBook.value ? Number(reportBook.value) : null;
+      renderReport();
+    });
+  }
 }
 
 /* ---------- 设置 ---------- */
@@ -1745,6 +1918,14 @@ async function renderSettings() {
         <section class="settings-tile">
           <div class="section-label">学习</div>
           <div class="card settings">
+            <div class="setting-row" style="padding-top:0">
+              <div class="setting-text">
+                <div class="title">词库列表</div>
+                <small>查看内置 / 自建词库，导入或删除词库</small>
+              </div>
+              <button class="btn small ghost" data-action="books">查看</button>
+            </div>
+            <div class="divider"></div>
             <div class="line">
               <div><div class="title">每日目标</div><small>5 – 200 题，学习报告按它算进度</small></div>
               <div class="unit-field">
@@ -2384,6 +2565,11 @@ app.addEventListener('click', async (event) => {
     case 'studied-filter':
       state.studiedFilter = target.dataset.filter || 'all';
       state.search = '';
+      await renderStudied();
+      break;
+    case 'letter-reset':
+      state.letterFrom = '';
+      state.letterTo = '';
       await renderStudied();
       break;
     case 'row-unlearn': {

@@ -47,6 +47,20 @@ function normPos(pos) {
   return normalizePosShared(pos);
 }
 
+/** 修复词条时保留例句；例句字段不参与词头/释义修复。 */
+function exampleFields(entry) {
+  if (!entry) return { exampleEn: '', exampleZh: '' };
+  const raw = String(entry.ex || '').trim();
+  if (entry.exampleEn || entry.exampleZh) {
+    return { exampleEn: String(entry.exampleEn || '').trim(), exampleZh: String(entry.exampleZh || '').trim() };
+  }
+  if (!raw) return { exampleEn: '', exampleZh: '' };
+  const at = raw.indexOf('||');
+  return at < 0
+    ? { exampleEn: raw, exampleZh: '' }
+    : { exampleEn: raw.slice(0, at).trim(), exampleZh: raw.slice(at + 2).trim() };
+}
+
 function trimMeaning(text) {
   return String(text || '')
     .replace(/[\u00A0\u3000]/g, ' ')
@@ -257,8 +271,9 @@ const report = { splitRows: 0, added: 0, fixed: 0, dropped: 0 };
 raw.forEach((entry) => {
   const w = String(entry.w);
   if (DROP.has(w)) { report.dropped += 1; return; }
+  const example = exampleFields(entry);
 
-  let a = { w: entry.w, pos: entry.pos, m: entry.m };
+  let a = { w: entry.w, pos: entry.pos, m: entry.m, ...example };
   let added = [];
 
   const ov = OVERRIDES[w];
@@ -290,8 +305,16 @@ raw.forEach((entry) => {
     w: String(a.w).replace(/\*/g, '').replace(/[ˈˌ]/g, "'").replace(/--+/g, '-').replace(/\s+/g, ' ').trim(),
     pos: normPos(a.pos),
     m: trimMeaning(a.m),
+    exampleEn: example.exampleEn,
+    exampleZh: example.exampleZh,
   };
-  out.push({ w: a.w, pos: a.pos, m: a.m });
+  out.push({
+    w: a.w,
+    pos: a.pos,
+    m: a.m,
+    ...(a.exampleEn ? { exampleEn: a.exampleEn } : {}),
+    ...(a.exampleZh ? { exampleZh: a.exampleZh } : {}),
+  });
 
   // 追加条清理
   for (const extra of added || []) {
@@ -316,6 +339,8 @@ const cleaned = out.map((e) => ({
   w: stripJunk(e.w).replace(/\*/g, '').replace(/[ˈˌ]/g, "'").replace(/--+/g, '-').replace(/ {2,}/g, ' ').trim(),
   pos: stripJunk(e.pos).trim(),
   m: trimMeaning(stripJunk(e.m)),
+  ...(e.exampleEn ? { exampleEn: stripJunk(e.exampleEn) } : {}),
+  ...(e.exampleZh ? { exampleZh: stripJunk(e.exampleZh) } : {}),
 }));
 
 fs.writeFileSync(OUT, JSON.stringify(cleaned), 'utf8');
