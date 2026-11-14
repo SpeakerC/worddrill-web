@@ -235,14 +235,19 @@ export function startPractice(body = {}) {
   const start = Number.isFinite(Number(body.start)) ? Number(body.start) : 1;
   const end = Number.isFinite(Number(body.end)) ? Number(body.end) : Number.MAX_SAFE_INTEGER;
   const filter = ['all', 'starred', 'mistakes'].includes(body.filter) ? body.filter : 'all';
-  const allowRepeat = body.allowRepeat !== false;
   const ids = Array.isArray(body.wordIds) ? body.wordIds.map(Number) : [];
   const words = ids.length > 0
     ? s.wordsByIds(ids)
-    : s.pickWords(book.id, { start, end, count, allowRepeat, filter });
+    : s.pickWords(book.id, { start, end, count, filter });
   const requested = ids.length > 0 ? ids.length : count;
+  // 首次练习（从没答过）的词才显示「不再练习此单词」
+  const practiced = new Set(s.db.practiceLog.map((p) => p.wordId));
+  const items = buildItems(words, s.allWords(), requested, mode).map((item) => ({
+    ...item,
+    firstTime: !practiced.has(item.wordId),
+  }));
   return {
-    items: buildItems(words, s.allWords(), requested, mode),
+    items,
     requested,
     mode,
     bookName: body.bookName || book.name,
@@ -313,6 +318,13 @@ export function setStar(wordId, starred) {
 
 export function setBlocked(wordId, blocked) {
   const ok = requireStore().setBlocked(Number(wordId), Boolean(blocked));
+  if (!ok) throw new Error('单词不存在');
+  return { ok };
+}
+
+/** 标记 / 取消「已掌握」：不再抽到、不进复习计划。 */
+export function setLearned(wordId, learned) {
+  const ok = requireStore().setLearned(Number(wordId), Boolean(learned));
   if (!ok) throw new Error('单词不存在');
   return { ok };
 }

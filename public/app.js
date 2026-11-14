@@ -39,7 +39,6 @@ const state = {
   count: 20,
   start: null,
   end: null,
-  allowRepeat: false,
   stats: null,
   practice: null,
   result: null,
@@ -375,7 +374,7 @@ async function renderHome() {
 
   const percent = stats.wordCount ? Math.round((stats.practiced / stats.wordCount) * 100) : 0;
   const sub = max
-    ? `索引 1 – ${max} · 还有 ${Math.max(stats.wordCount - stats.practiced, 0)} 词未练${stats.blockedCount ? ` · 屏蔽 ${stats.blockedCount} 个` : ''}`
+    ? `索引 1 – ${max} · 还有 ${stats.fresh} 词未练${stats.learned ? ` · 已掌握 ${stats.learned} 个` : ''}${stats.blockedCount ? ` · 屏蔽 ${stats.blockedCount} 个` : ''}`
     : (stats.blockedCount ? `${stats.blockedCount} 个单词都被屏蔽了，恢复后才会出现` : '这个词库还没有单词');
 
   const books = state.books || [];
@@ -429,7 +428,8 @@ async function renderHome() {
       </div>
 
       <div class="stack">
-        <button class="btn block start-btn" data-action="start" ${max ? '' : 'disabled'}>开始练习</button>
+        <button class="btn block start-btn" data-action="start" ${stats.fresh ? '' : 'disabled'}>开始练习</button>
+        ${max && !stats.fresh ? '<div class="hint" style="text-align:center;margin-top:-2px">新词都练完了，用下面的「复习」练已练过的词</div>' : ''}
 
         <button class="btn ghost block review-btn" data-action="review" ${reviewTotal ? '' : 'disabled'}>
           ${reviewTotal
@@ -457,10 +457,8 @@ async function renderHome() {
               <input id="endInput" class="input narrow" type="number" min="1" placeholder="止" value="${state.end ?? ''}">
             </div>
           </div>
-          <label class="checkbox">
-            <input id="repeatInput" type="checkbox" ${state.allowRepeat ? 'checked' : ''}>
-            允许重复抽到已练过的
-          </label>
+          <div class="divider"></div>
+          <div class="hint">每轮只抽从未练过的词；练过的请用上面的「复习」。</div>
         </div>
 
         <div class="row book-links">
@@ -553,8 +551,7 @@ function readSettings() {
   state.count = count;
   state.start = start;
   state.end = end;
-  state.allowRepeat = document.getElementById('repeatInput').checked;
-  return { count, start, end, allowRepeat: state.allowRepeat };
+  return { count, start, end };
 }
 
 async function startPractice(options, wordIds = null, filter = 'all', bookName = null) {
@@ -566,14 +563,13 @@ async function startPractice(options, wordIds = null, filter = 'all', bookName =
     count: wordIds ? wordIds.length : options.count,
     start: options.start,
     end: options.end,
-    allowRepeat: wordIds ? true : options.allowRepeat,
     filter,
   };
   if (wordIds) payload.wordIds = wordIds;
   if (bookName) payload.bookName = bookName;
   const data = repo.startPractice(payload);
   if (!data.items.length) {
-    toast(wordIds ? '没有可练习的单词' : '当前词库或范围里没有单词');
+    toast(wordIds ? '没有可练习的单词' : '这个范围里没有没练过的单词，去「复习」练已练过的吧');
     return;
   }
   state.practice = {
@@ -662,6 +658,9 @@ function renderPractice() {
       </div>
 
       ${body}
+      ${!p.answered && item.firstTime ? `<div class="practice-skip">
+        <button class="btn text small danger-text" data-action="skip-word">不再练习此单词</button>
+      </div>` : ''}
       ${feedback}
       <div class="practice-actions">${dontKnow}${nextButton}</div>
       <div class="kbd-tip">按 <kbd>1</kbd>–<kbd>4</kbd> 或 <kbd>A</kbd>–<kbd>D</kbd> 选择，<kbd>Enter</kbd> 下一题${isSpell ? '，<kbd>Enter</kbd> 提交拼写' : ''}；手机上左滑＝我不会，长按＝加星</div>
@@ -765,6 +764,38 @@ function markUnknown() {
   } catch (err) {
     toast(err.message);
   }
+}
+
+/** 首练时点「不再练习此单词」：直接标成已掌握，移出本轮并跳到下一题。 */
+function markLearned() {
+  const p = state.practice;
+  if (!p || p.answered) return;
+  const item = p.items[p.index];
+  try {
+    repo.setLearned(item.wordId, true);
+  } catch (err) {
+    toast(err.message);
+    return;
+  }
+  p.items.splice(p.index, 1);
+  toast(`「${item.word}」已加入已掌握，不再抽到`);
+  // 跳过的正好是最后一题：有答题记录就进结果页，否则回首页
+  if (!p.items.length || p.index >= p.items.length) {
+    if (p.records.length) {
+      state.result = { mode: p.mode, bookName: p.bookName, records: p.records };
+      state.practice = null;
+      location.hash = '#/result';
+    } else {
+      state.practice = null;
+      location.hash = '#/';
+    }
+    return;
+  }
+  p.answered = false;
+  p.choice = null;
+  p.input = '';
+  p.spokenKey = '';
+  renderPractice();
 }
 
 function renderFeedback(item) {
@@ -923,7 +954,7 @@ async function retryWrong() {
   const ids = result.records.filter((r) => !r.correct).map((r) => r.wordId);
   if (!ids.length) return;
   state.mode = result.mode;
-  await startPractice({ count: ids.length, start: 1, end: Number.MAX_SAFE_INTEGER, allowRepeat: true }, ids);
+  await startPractice({ count: ids.length, start: 1, end: Number.MAX_SAFE_INTEGER }, ids);
 }
 
 /* ---------- 词表 ---------- */
@@ -1086,13 +1117,13 @@ async function practiceList() {
   const book = currentBook();
   if (!book) return;
   const data = state.listData || await loadListData(book, state.listFilter);
-  const ids = data.words.map((w) => w.id);
+  const ids = data.words.filter((w) => !w.learned).map((w) => w.id);
   if (!ids.length) { toast('还没有可练习的单词'); return; }
   const filter = state.listFilter === 'mistakes' ? 'mistakes' : (state.listFilter === 'starred' ? 'starred' : 'all');
   const chosen = await chooseCount(ids.length);
   if (!chosen) return;
   await startPractice(
-    { count: chosen, start: 1, end: Number.MAX_SAFE_INTEGER, allowRepeat: true },
+    { count: chosen, start: 1, end: Number.MAX_SAFE_INTEGER },
     chosen >= ids.length ? ids : ids.slice(0, chosen),
     filter,
   );
@@ -1218,15 +1249,19 @@ function studiedRowsHtml(words) {
     const tag = w.mastered
       ? '<span class="chip ok">已掌握</span>'
       : (w.forgetting ? '<span class="chip warn">易忘</span>' : `<span class="chip">${w.level} 级</span>`);
+    const extra = w.learned
+      ? '首练时标为已掌握 · 不再抽到，也不进复习计划'
+      : `下次复习 ${dueText(w.dueAt, now)} · 练过 ${w.times} 次${w.wrong ? ` · 错 ${w.wrong} 次` : ''}`;
     return `
       <div class="word-row">
         <div class="idx">${w.index == null ? '' : w.index}</div>
         <div class="body">
           <div class="w">${esc(w.word)} ${tag}</div>
           <div class="m">${esc(w.pos ? `${w.pos} ${w.meaning}` : w.meaning)}</div>
-          <div class="extra${overdue ? ' overdue' : ''}">下次复习 ${dueText(w.dueAt, now)} · 练过 ${w.times} 次${w.wrong ? ` · 错 ${w.wrong} 次` : ''}</div>
+          <div class="extra${overdue ? ' overdue' : ''}">${extra}</div>
         </div>
         <div class="acts">
+          ${w.learned ? `<button class="btn small ghost" data-action="row-unlearn" data-id="${w.id}">恢复</button>` : ''}
           <button class="icon-btn ${w.starred ? 'star-on' : ''}" data-action="row-star" data-id="${w.id}" title="星标">${w.starred ? '★' : '☆'}</button>
         </div>
       </div>`;
@@ -1911,7 +1946,7 @@ async function startReview(forcedScope = '') {
   state.mode = choice;
   prefs.set('worddrill.mode', choice);
   await startPractice(
-    { count: data.words.length, start: 1, end: Number.MAX_SAFE_INTEGER, allowRepeat: true },
+    { count: data.words.length, start: 1, end: Number.MAX_SAFE_INTEGER },
     data.words.map((word) => word.id),
     'review',
     scope === 'all' ? '复习' : '今日复习',
@@ -2212,6 +2247,9 @@ app.addEventListener('click', async (event) => {
     case 'star':
       await toggleStar();
       break;
+    case 'skip-word':
+      markLearned();
+      break;
     case 'exit':
       exitPractice();
       break;
@@ -2278,6 +2316,15 @@ app.addEventListener('click', async (event) => {
       state.search = '';
       await renderStudied();
       break;
+    case 'row-unlearn': {
+      const id = Number(target.dataset.id);
+      try {
+        repo.setLearned(id, false);
+        toast('已恢复成没练过的词，会重新出现在新练习里');
+        await renderStudied();
+      } catch (err) { toast(err.message); }
+      break;
+    }
     case 'studied-practice': {
       const book = currentBook();
       const data = state.listData && state.listData.words ? state.listData.words : [];
@@ -2286,7 +2333,7 @@ app.addEventListener('click', async (event) => {
       const chosen = await chooseCount(ids.length);
       if (!chosen) return;
       await startPractice(
-        { count: chosen, start: 1, end: Number.MAX_SAFE_INTEGER, allowRepeat: true },
+        { count: chosen, start: 1, end: Number.MAX_SAFE_INTEGER },
         chosen >= ids.length ? ids : ids.slice(0, chosen),
         'all',
         book.name,
@@ -2316,7 +2363,7 @@ app.addEventListener('click', async (event) => {
       break;
     }
     case 'clear-log': {
-      const ok = await confirmDialog('清空练习记录？', '所有单词重新算「没练过」，复习排期一并清空。星标和错题不受影响。', '清空');
+      const ok = await confirmDialog('清空练习记录？', '练过的单词重新算「没练过」，复习排期一并清空。星标、错题和已掌握标记不受影响。', '清空');
       if (!ok) return;
       try {
         repo.clearLog();
@@ -2407,9 +2454,6 @@ app.addEventListener('input', (event) => {
   if (event.target.id === 'countInput') state.count = Number(event.target.value) || 0;
   if (event.target.id === 'startInput') state.start = Number(event.target.value) || null;
   if (event.target.id === 'endInput') state.end = Number(event.target.value) || null;
-});
-app.addEventListener('change', (event) => {
-  if (event.target.id === 'repeatInput') state.allowRepeat = event.target.checked;
 });
 
 document.addEventListener('keydown', (event) => {

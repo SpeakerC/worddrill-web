@@ -63,7 +63,7 @@ test('导入按出现顺序递增，重复词跳过', () => {
   assert.deepEqual(store.words(result.bookId).map((w) => w.index), [1, 2, 3]);
 });
 
-test('答错进错题，连续答对 2 次才移出；关闭重复时不再抽已练词', () => {
+test('答错进错题，连续答对 2 次才移出；新练习不再抽已练词', () => {
   const store = tempStore();
   const book = store.books()[0];
   const word = store.words(book.id)[0];
@@ -73,7 +73,7 @@ test('答错进错题，连续答对 2 次才移出；关闭重复时不再抽�
   assert.equal(store.mistakes(book.id)[0].wrong, 1);
   assert.equal(store.mistakes(book.id)[0].streak, 0);
 
-  const left = store.pickWords(book.id, { start: 1, end: 4, count: 10, allowRepeat: false });
+  const left = store.pickWords(book.id, { start: 1, end: 4, count: 10 });
   assert.equal(left.length, 3);
   assert.ok(!left.some((w) => w.id === word.id));
 
@@ -87,7 +87,60 @@ test('答错进错题，连续答对 2 次才移出；关闭重复时不再抽�
   assert.equal(store.mistakes(book.id).length, 0, '连续答对 2 次才移出');
 
   store.clearPracticeLog();
-  assert.equal(store.pickWords(book.id, { start: 1, end: 4, count: 10, allowRepeat: false }).length, 4);
+  assert.equal(store.pickWords(book.id, { start: 1, end: 4, count: 10 }).length, 4);
+});
+
+test('首练标成已掌握后不再抽到、不进复习计划，算已掌握并能恢复', () => {
+  const store = tempStore();
+  const book = store.books()[0];
+  const words = store.words(book.id);
+  const skipped = words[0];
+  const practiced = words[1];
+
+  // 首练时手动标成已掌握
+  assert.equal(store.setLearned(skipped.id, true), true);
+  const picked = store.pickWords(book.id, { start: 1, end: 4, count: 10 });
+  assert.equal(picked.length, 3, '已掌握的不该被抽到');
+  assert.ok(!picked.some((w) => w.id === skipped.id));
+
+  // 练过的词也不该再进新练习
+  store.recordAnswer(practiced.id, 'en_zh', true);
+  const after = store.pickWords(book.id, { start: 1, end: 4, count: 10 });
+  assert.equal(after.length, 2);
+  assert.ok(!after.some((w) => w.id === practiced.id));
+
+  // 已懂的不进学习计划：不补复习排期、复习列表里也没有
+  store.ensureReviewRecords();
+  assert.ok(!store.db.review.some((r) => r.wordId === skipped.id), '不该补复习排期');
+  assert.equal(store.reviewWordCount('all'), 1, '复习里只应有练过的那一个');
+
+  // 已练词汇里按「已掌握」算
+  const mastered = store.studiedWords(book.id, 'mastered');
+  assert.ok(mastered.some((w) => w.id === skipped.id), '已掌握筛选里应有这个词');
+  assert.equal(store.studiedCounts(book.id).mastered, 1);
+  assert.equal(store.stats(book.id).learned, 1);
+  assert.equal(store.stats(book.id).fresh, 2);
+
+  // 报告里的掌握度也算已掌握
+  assert.equal(store.masteryStats(book.id).mastered, 1);
+
+  // 恢复：又变成没练过的词，能重新抽到
+  assert.equal(store.setLearned(skipped.id, false), true);
+  assert.equal(store.stats(book.id).learned, 0);
+  assert.equal(store.pickWords(book.id, { start: 1, end: 4, count: 10 }).length, 3);
+});
+
+test('已掌握的词再被练也不会重新排进复习计划', () => {
+  const store = tempStore();
+  const book = store.books()[0];
+  const word = store.words(book.id)[0];
+  store.setLearned(word.id, true);
+
+  store.recordAnswer(word.id, 'en_zh', false);
+  assert.equal(store.db.review.length, 0, '不该新增复习排期');
+  store.ensureReviewRecords();
+  assert.equal(store.db.review.length, 0, 'ensureReviewRecords 也应跳过它');
+  assert.equal(store.reviewWords(10, 'all').length, 0);
 });
 
 test('答错一次会把连对次数清零', () => {

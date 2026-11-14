@@ -97,6 +97,7 @@ export class Store {
         meaning: entry.m,
         starred: false,
         blocked: false,
+        learned: false,
         createdAt: now,
       });
     });
@@ -320,10 +321,14 @@ export class Store {
   stats(bookId) {
     const visible = this.visibleWords(bookId);
     const practiced = new Set(this.db.practiceLog.map((p) => p.wordId));
+    const learned = visible.filter((w) => w.learned).length;
     return {
       wordCount: visible.length,
       blockedCount: this.blockedCount(bookId),
       practiced: visible.filter((w) => practiced.has(w.id)).length,
+      learned,
+      // 还能抽出来练的新词：没练过、也没标成已掌握
+      fresh: visible.filter((w) => !practiced.has(w.id) && !w.learned).length,
       range: visible.length ? { start: 1, end: visible.length } : null,
     };
   }
@@ -341,6 +346,7 @@ export class Store {
       meaning: word.meaning,
       starred: Boolean(word.starred),
       blocked: Boolean(word.blocked),
+      learned: Boolean(word.learned),
     };
   }
 
@@ -451,6 +457,26 @@ export class Store {
     return true;
   }
 
+  /**
+   * 标记 / 取消「已掌握」。已掌握的单词不再被抽到，也不进复习计划；
+   * 标记时顺手清掉它的复习排期与错题记录（首练时标记本来也没有这两项）。
+   */
+  setLearned(wordId, learned) {
+    const word = this.db.words.find((w) => w.id === wordId);
+    if (!word) return false;
+    const next = Boolean(learned);
+    if (Boolean(word.learned) === next) return false;
+    word.learned = next;
+    if (next) {
+      this.db.review = this.db.review.filter((r) => r.wordId !== wordId);
+      this.db.mistakes = this.db.mistakes.filter((m) => m.wordId !== wordId);
+      this.change('review');
+      this.change('mistakes');
+    }
+    this.change('words');
+    return true;
+  }
+
   unblockAll(bookId) {
     let changed = 0;
     for (const word of this.db.words) {
@@ -465,7 +491,11 @@ export class Store {
 
   // ---------- 抽题 ----------
 
-  pickWords(bookId, { start = 1, end = Number.MAX_SAFE_INTEGER, count = 20, allowRepeat = true, filter = 'all' } = {}) {
+  /**
+   * 抽「新练习」的题：只抽从没练过的单词，已练过的留给「复习」。
+   * 已掌握（learned）的单词任何时候都不再抽到，任何筛选条件都一样。
+   */
+  pickWords(bookId, { start = 1, end = Number.MAX_SAFE_INTEGER, count = 20, filter = 'all' } = {}) {
     const index = this.indexMap(bookId);
     let list = this.visibleWords(bookId);
     if (filter === 'starred' || filter === 'mistakes') {
@@ -476,9 +506,9 @@ export class Store {
     }
     let candidates = list
       .map((w) => this.withIndex(w, index.get(w.id)))
-      .filter((w) => w.index >= start && w.index <= end);
+      .filter((w) => w.index >= start && w.index <= end && !w.learned);
 
-    if (filter === 'all' && !allowRepeat) {
+    if (filter === 'all') {
       const practiced = new Set(this.db.practiceLog.map((p) => p.wordId));
       candidates = candidates.filter((w) => !practiced.has(w.id));
     }
@@ -519,19 +549,23 @@ export class Store {
       this.db.practiceLog.push({ wordId, times: 1, lastAt: now });
     }
 
-    // 间隔重复：答对升级、答错归零，据此算下次复习时间
-    const record = this.db.review.find((r) => r.wordId === wordId);
-    const currentLevel = record ? record.level : 0;
-    const lapses = (record ? record.lapses : 0) + (correct ? 0 : 1);
-    const level = nextLevel(currentLevel, correct);
-    const dueAt = nextDueAt(currentLevel, correct, now);
-    if (record) {
-      record.level = level;
-      record.dueAt = dueAt;
-      record.lastAt = now;
-      record.lapses = lapses;
-    } else {
-      this.db.review.push({ wordId, level, dueAt, lastAt: now, lapses });
+    // 间隔重复：答对升级、答错归零，据此算下次复习时间。
+    // 手动标成已掌握的词不排期，不会因为再练一次又回到学习计划里。
+    const word = this.db.words.find((w) => w.id === wordId);
+    if (!word || !word.learned) {
+      const record = this.db.review.find((r) => r.wordId === wordId);
+      const currentLevel = record ? record.level : 0;
+      const lapses = (record ? record.lapses : 0) + (correct ? 0 : 1);
+      const level = nextLevel(currentLevel, correct);
+      const dueAt = nextDueAt(currentLevel, correct, now);
+      if (record) {
+        record.level = level;
+        record.dueAt = dueAt;
+        record.lastAt = now;
+        record.lapses = lapses;
+      } else {
+        this.db.review.push({ wordId, level, dueAt, lastAt: now, lapses });
+      }
     }
 
     // 打卡：按本地日期累加当天答题数与正确数
@@ -555,11 +589,13 @@ export class Store {
   /**
    * 练过（见过面）的单词：有练习记录、或已有复习排期的都算。
    * 只认练习记录，不看对错——答对过一次也算练过。
+   * 首练时被手动标成「已掌握」的词没练过，但也算「已学过」，会出现在已练词汇页。
    */
   studiedIds() {
     const ids = new Set();
     for (const p of this.db.practiceLog) ids.add(p.wordId);
     for (const r of this.db.review) ids.add(r.wordId);
+    for (const w of this.db.words) if (w.learned) ids.add(w.id);
     return ids;
   }
 
@@ -569,10 +605,12 @@ export class Store {
    */
   ensureReviewRecords() {
     const known = new Set(this.db.review.map((r) => r.wordId));
+    // 手动标成已掌握的词不进学习计划
+    const learned = new Set(this.db.words.filter((w) => w.learned).map((w) => w.id));
     const lastAt = new Map(this.db.practiceLog.map((p) => [p.wordId, p.lastAt || 0]));
     let created = 0;
     for (const wordId of this.studiedIds()) {
-      if (known.has(wordId)) continue;
+      if (learned.has(wordId) || known.has(wordId)) continue;
       this.db.review.push({ wordId, level: 0, dueAt: 0, lastAt: lastAt.get(wordId) || 0, lapses: 0 });
       known.add(wordId);
       created += 1;
@@ -593,7 +631,7 @@ export class Store {
     const list = [];
     for (const wordId of this.studiedIds()) {
       const word = byId.get(wordId);
-      if (!word || word.blocked) continue;
+      if (!word || word.blocked || word.learned) continue;
       const record = records.get(wordId);
       const level = record ? (record.level || 0) : 0;
       const dueAt = record ? (record.dueAt || 0) : 0;
@@ -655,9 +693,10 @@ export class Store {
     for (const wordId of this.studiedIds()) {
       const word = byId.get(wordId);
       if (!word || word.blocked || word.bookId !== bookId) continue;
+      const learned = Boolean(word.learned);
       const record = records.get(wordId);
-      const level = record ? (record.level || 0) : 0;
-      const dueAt = record ? (record.dueAt || 0) : 0;
+      const level = learned ? 5 : (record ? (record.level || 0) : 0);
+      const dueAt = learned ? 0 : (record ? (record.dueAt || 0) : 0);
       const mistake = mistakeMap.get(wordId);
       const log = logMap.get(wordId);
       list.push({
@@ -668,10 +707,10 @@ export class Store {
         lapses: record ? (record.lapses || 0) : 0,
         wrong: mistake ? mistake.wrong : 0,
         streak: mistake ? (mistake.streak || 0) : 0,
-        times: log ? log.times : 1,
-        mastered: level >= 5,
+        times: log ? log.times : (learned ? 0 : 1),
+        mastered: learned || level >= 5,
         // 易忘：答错过，或者复习时遗忘过 2 次以上
-        forgetting: Boolean(mistake) || (record ? (record.lapses || 0) >= 2 : false),
+        forgetting: !learned && (Boolean(mistake) || (record ? (record.lapses || 0) >= 2 : false)),
       });
     }
     let out = list;
@@ -733,7 +772,8 @@ export class Store {
     const levels = new Map(this.db.review.map((r) => [r.wordId, r.level || 0]));
     const counts = { new: 0, learning: 0, familiar: 0, mastered: 0 };
     for (const word of words) {
-      const level = levels.get(word.id) || 0;
+      // 手动标成已掌握的词，报告里也按「已掌握」算
+      const level = word.learned ? 5 : (levels.get(word.id) || 0);
       if (level >= 5) counts.mastered += 1;
       else if (level >= 3) counts.familiar += 1;
       else if (level >= 1) counts.learning += 1;
@@ -847,6 +887,7 @@ export class Store {
         meaning,
         starred: false,
         blocked: false,
+        learned: false,
         createdAt: now,
       });
       added += 1;

@@ -25,11 +25,24 @@ async function main() {
     await page.waitForSelector('.hero');
     check((await page.$$('.mode')).length === 4, '首页应有四种练习方式');
     check((await bodyText()).includes('开始练习'), '首页应有开始按钮');
+    check(!(await page.$('#repeatInput')), '首页不应再有「允许重复抽到已练过的」开关');
+    check((await bodyText()).includes('每轮只抽从未练过的词'), '首页应说明只抽没练过的词');
 
     /* ---------- 练习 ---------- */
     await page.click('[data-action="start"]');
     await page.waitForSelector('.prompt');
     check((await page.$$('.opt')).length === 4, '选择题应有四个选项');
+
+    // 首练可把词直接标成已掌握
+    check(Boolean(await page.$('[data-action="skip-word"]')), '首练应能标记「不再练习此单词」');
+    await page.click('[data-action="skip-word"]');
+    const learnedCount = await page.evaluate(() => {
+      const book = window.worddrill.repo.bootstrap().books.find((b) => b.name === '高中 3500 词');
+      return window.worddrill.repo.studied(book.id, 'mastered').words.filter((w) => w.learned).length;
+    });
+    check(learnedCount === 1, `标成已掌握的词应进「已掌握」，实际 ${learnedCount}`);
+    check(Boolean(await page.$('.opt')), '标成已掌握后应接着练下一题');
+
     await page.click('.opt');
     await page.waitForSelector('.feedback');
     check(Boolean(await page.$('.opt.correct')), '提交后应标出正确项');
