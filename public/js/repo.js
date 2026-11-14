@@ -58,6 +58,9 @@ async function loadSeed() {
  */
 const BUILTIN_VERSION = 3;
 
+/** 内置词表内容版本：2 = 已修复吞词/坏词头的版本。老数据（0）启动时自动迁移一次。 */
+const WORDLIST_VERSION = 2;
+
 /** 下架过的内置词库：不再出现在清单里，也不再补种。 */
 const RETIRED_SEEDS = ['senior-ext'];
 
@@ -134,6 +137,27 @@ async function loadBuiltins({ fresh = false } = {}) {
   return out;
 }
 
+/**
+ * 老数据一次性迁移：按最新内置词表重建，保留星标/错题/练习记录/复习排期。
+ * 离线或词表没取全时静默跳过，下次启动再试；迁移成功后写 wordlistVersion，不再重复。
+ */
+async function migrateWordlist(s) {
+  if ((s.db.wordlistVersion || 0) >= WORDLIST_VERSION) return null;
+  if (!s.db.books.some((b) => b.builtin)) {
+    s.db.wordlistVersion = WORDLIST_VERSION;
+    s.change('meta');
+    return null;
+  }
+  const builtins = await loadBuiltins({ fresh: true });
+  if (builtins.length < BUILTIN_BOOKS.length) return null;
+  try {
+    saveAutoBackupNow();
+  } catch {
+    // 快照失败不挡住迁移
+  }
+  return s.redeployBuiltinBooks(builtins, WORD_RENAMES, WORDLIST_VERSION);
+}
+
 async function loadAbout() {
   const fallback = { name: '单词练习', version: VERSION, developer: '', summary: '', rows: [], note: '' };
   try {
@@ -168,6 +192,7 @@ export async function init(options = {}) {
     const builtins = await loadBuiltins();
     const fresh = new Store();
     fresh.applyBuiltins(builtins, BUILTIN_VERSION);
+    fresh.db.wordlistVersion = WORDLIST_VERSION;
     db = fresh.db;
     seeded = true;
   }
@@ -184,6 +209,13 @@ export async function init(options = {}) {
     // 版本已最新：仍跑一次去重，收拾早期版本留下的重名内置词库（例如两个「高中 3500 词」）
     const { merged } = store.dedupeBuiltins();
     if (merged) storage.save('all');
+  }
+
+  // 老数据一次性迁移到修好的内置词表；失败（离线/文件不全）下次启动再试
+  try {
+    await migrateWordlist(store);
+  } catch (err) {
+    console.warn('词表迁移失败：', err);
   }
 
   // 老数据可能「练过但没有复习排期」，加载时补齐，保证所有练过的词都进复习
@@ -219,7 +251,7 @@ export async function redeployBuiltins() {
   } catch {
     // 快照失败不挡住重建
   }
-  const stats = s.redeployBuiltinBooks(builtins, WORD_RENAMES);
+  const stats = s.redeployBuiltinBooks(builtins, WORD_RENAMES, WORDLIST_VERSION);
   return { ...stats, snapshot };
 }
 

@@ -127,6 +127,16 @@ test('重新部署：只有星号/重音差异的词按归一化对齐，保留 
   assert.equal(word.starred, true);
 });
 
+test('重新部署成功后写入词表内容版本', () => {
+  const { store, book } = seedOld();
+  assert.equal(store.db.wordlistVersion, 0);
+  const entries = store.db.words
+    .filter((w) => w.bookId === book.id)
+    .map((w) => ({ w: w.word, pos: w.pos, m: w.meaning }));
+  store.redeployBuiltinBooks([{ seedId: 'test', name: '测试词库', entries }], {}, 2);
+  assert.equal(store.db.wordlistVersion, 2);
+});
+
 test('重新部署：缺书时新建，导入词库完全不动', () => {
   const store = new Store();
   const imported = store.importEntries(null, '自建', [{ word: 'keep', pos: 'n.', meaning: '保留' }]);

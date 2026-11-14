@@ -65,6 +65,7 @@ export function createStorage(options = {}) {
     return normalizeDb({
       version: meta.version || 1,
       seedVersion: meta.seedVersion,
+      wordlistVersion: meta.wordlistVersion,
       nextBookId: meta.nextBookId,
       nextWordId: meta.nextWordId,
       books,
@@ -88,6 +89,7 @@ export function createStorage(options = {}) {
       storage.setItem(`${PREFIX}meta`, JSON.stringify({
         version: db.version || 1,
         seedVersion: db.seedVersion || 0,
+        wordlistVersion: db.wordlistVersion || 0,
         nextBookId: db.nextBookId,
         nextWordId: db.nextWordId,
       }));

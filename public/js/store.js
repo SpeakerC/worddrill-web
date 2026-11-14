@@ -24,6 +24,8 @@ export function emptyDb() {
   return {
     version: 2,
     seedVersion: 0,
+    // 内置词表内容版本：老数据（没有这个字段 = 0）在启动时自动迁移一次
+    wordlistVersion: 0,
     nextBookId: 1,
     nextWordId: 1,
     books: [],
@@ -65,6 +67,7 @@ export function normalizeDb(raw) {
   if (!Number.isFinite(raw && raw.nextBookId)) db.nextBookId = maxId(db.books) + 1;
   if (!Number.isFinite(raw && raw.nextWordId)) db.nextWordId = maxId(db.words) + 1;
   if (!Number.isFinite(raw && raw.seedVersion)) db.seedVersion = 0;
+  if (!Number.isFinite(raw && raw.wordlistVersion)) db.wordlistVersion = 0;
   return db;
 }
 
@@ -931,7 +934,7 @@ export class Store {
    * @param {Array<{seedId:string,name:string,entries:Array<{w:string,pos?:string,m:string}>}>} builtins
    * @param {Record<string,string>} renames
    */
-  redeployBuiltinBooks(builtins, renames = {}) {
+  redeployBuiltinBooks(builtins, renames = {}, wordlistVersion = 0) {
     const specs = (Array.isArray(builtins) ? builtins : [])
       .filter((b) => b && b.seedId && Array.isArray(b.entries) && b.entries.length);
     if (!specs.length) return { books: [], added: 0, removed: 0, merged: 0, renamed: 0 };
@@ -1096,6 +1099,7 @@ export class Store {
       this.db.mistakes = this.db.mistakes.filter((m) => !removeIds.has(m.wordId));
       this.db.review = this.db.review.filter((r) => !removeIds.has(r.wordId));
     }
+    if (wordlistVersion) this.db.wordlistVersion = wordlistVersion;
     this.change('all');
     return stats;
   }

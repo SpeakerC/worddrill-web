@@ -397,8 +397,68 @@ async function main() {
     check((await bodyText()).includes('开始练习'), '断网后仍应能打开并使用');
     await context.setOffline(false);
 
+    /* ---------- 老数据一次性迁移：加载时自动，不点设置 ---------- */
+    const legacy = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const lp = await legacy.newPage();
+    const legacyErrors = [];
+    lp.on('pageerror', (err) => legacyErrors.push(err.message));
+    await lp.addInitScript(() => {
+      const now = Date.now();
+      const books = [{ id: 1, name: '高中 3500 词', builtin: true, createdAt: now }];
+      const words = [{
+        id: 1, bookId: 1, ord: 1, word: 'v]', pos: '',
+        meaning: 't. 把…分类，拣选', starred: true, blocked: false, createdAt: now,
+      }];
+      localStorage.setItem('worddrill.db.books', JSON.stringify(books));
+      localStorage.setItem('worddrill.db.words', JSON.stringify(words));
+      localStorage.setItem('worddrill.db.mistakes', JSON.stringify([
+        { wordId: 1, mode: 'en_zh', wrong: 2, streak: 0, lastAt: now },
+      ]));
+      localStorage.setItem('worddrill.db.log', JSON.stringify([
+        { wordId: 1, times: 3, lastAt: now },
+      ]));
+      localStorage.setItem('worddrill.db.review', JSON.stringify([
+        { wordId: 1, level: 1, dueAt: now + 86400000, lastAt: now, lapses: 0 },
+      ]));
+      localStorage.setItem('worddrill.db.daily', '[]');
+      localStorage.setItem('worddrill.db.meta', JSON.stringify({
+        version: 2, seedVersion: 3, nextBookId: 2, nextWordId: 2,
+      }));
+    });
+    await lp.goto(server.base, { waitUntil: 'domcontentloaded' });
+    await lp.waitForSelector('.hero', { timeout: 30000 });
+    await lp.waitForTimeout(500);
+    const migrated = await lp.evaluate(() => {
+      const books = window.worddrill.repo.bootstrap().books;
+      const book = books.find((b) => b.name === '高中 3500 词');
+      const sort = window.worddrill.repo.listWords(book.id, 'all', 'sort').words[0];
+      const broken = window.worddrill.repo.listWords(book.id, 'all', 'v]').words.length;
+      const log = JSON.parse(localStorage.getItem('worddrill.db.log')).find((p) => p.wordId === 1);
+      const mistake = JSON.parse(localStorage.getItem('worddrill.db.mistakes')).find((m) => m.wordId === 1);
+      const review = JSON.parse(localStorage.getItem('worddrill.db.review')).find((r) => r.wordId === 1);
+      const meta = JSON.parse(localStorage.getItem('worddrill.db.meta'));
+      return { books, sort, broken, log, mistake, review, version: meta.wordlistVersion };
+    });
+    check(migrated.version === 2, `迁移后 wordlistVersion 应为 2，实际 ${migrated.version}`);
+    check(migrated.broken === 0, 'v] 应已被替换');
+    check(Boolean(migrated.sort && migrated.sort.id === 1 && migrated.sort.word === 'sort'), 'sort 应保留原 id');
+    check(Boolean(migrated.sort && migrated.sort.starred), '星标应保留');
+    check(Boolean(migrated.log && migrated.log.times === 3), '练习记录应保留');
+    check(Boolean(migrated.mistake && migrated.mistake.wrong === 2), '错题应保留');
+    check(Boolean(migrated.review && migrated.review.level === 1), '复习排期应保留');
+    check(
+      migrated.books.some((b) => b.name === '高中 3500 词' && b.wordCount === 3846),
+      `迁移后 3500 应为 3846 词，实际 ${JSON.stringify(migrated.books)}`,
+    );
+    check(
+      migrated.books.some((b) => b.name === '大学英语四级' && b.wordCount === 4544),
+      '缺的四级应自动补建',
+    );
+    check(legacyErrors.length === 0, `迁移页报错：${legacyErrors.join('; ')}`);
+    await legacy.close();
+
     check(errors.length === 0, `页面脚本报错：\n${errors.join('\n')}`);
-    console.log('✔ 冒烟通过：首页 / 练习 / 结果 / 词表 / 屏蔽 / 导入 / 报告 / 设置 / 隐私 / 关于 / 刷新持久化 / 断网可用');
+    console.log('✔ 冒烟通过：首页 / 练习 / 结果 / 词表 / 屏蔽 / 导入 / 报告 / 设置 / 隐私 / 关于 / 刷新持久化 / 断网可用 / 老数据自动迁移');
   } finally {
     await context.close();
     await browser.close();
