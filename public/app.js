@@ -6,6 +6,7 @@ import { applyTheme, themePref, setThemePref, watchSystem } from './js/theme.js'
 import { mistakesCsv, csvFileName, CSV_BOM } from './js/csv.js';
 import { isAcceptable } from './js/quiz.js';
 import { smartParse } from './js/smartparse.js';
+import { renderReportImage } from './js/report-image.js';
 
 /** AI 图标：四角星 + 小星，导入页和设置共用。 */
 const AI_ICON = `<svg class="ai-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8l1.8 5.4L19.2 10l-5.4 1.8L12 17.2l-1.8-5.4L4.8 10l5.4-1.8L12 2.8Z"/><path d="M19 14.6l.9 2.5 2.5.9-2.5.9-.9 2.5-.9-2.5-2.5-.9 2.5-.9.9-2.5Z"/></svg>`;
@@ -54,6 +55,7 @@ const state = {
   search: '',
   letterFrom: '',
   letterTo: '',
+  letterJump: '',
   reportBookId: null,
   importBookId: null,
   searchTimer: null,
@@ -1152,6 +1154,7 @@ function listRowsHtml(data, filter, book) {
         </div>
         <div class="acts">
           <button class="icon-btn ${word.starred ? 'star-on' : ''}" data-action="row-star" data-id="${word.id}" title="星标">${word.starred ? '★' : '☆'}</button>
+          ${!book.builtin ? `<button class="btn small ghost" data-action="edit-word" data-id="${word.id}">编辑</button>` : ''}
           ${filter === 'mistakes' ? `<button class="btn small ghost" data-action="row-remove-mistake" data-id="${word.id}">移出</button>` : ''}
           ${filter === 'blocked' ? `<button class="btn small ghost" data-action="row-unblock" data-id="${word.id}">恢复</button>`
     : (filter === 'all' && !book.builtin ? `<button class="btn small ghost" data-action="row-block" data-id="${word.id}">屏蔽</button>` : '')}
@@ -1210,6 +1213,64 @@ async function listRowAction(action, id) {
   }
 }
 
+/** 编辑自建词库的单词：拼写、词性、释义；学习记录按 id 保留。 */
+function editWordDialog(word) {
+  return new Promise((resolve) => {
+    const overlay = openModal(`
+      <div class="about-card" style="text-align:left">
+        <h3 style="margin-top:0">编辑单词</h3>
+        <p class="hint" style="margin:0 0 14px">只修改当前词库里的拼写、词性和释义，练习记录、星标和复习排期都会保留。</p>
+        <form id="editWordForm">
+          <label class="hint" for="editWordInput">英文</label>
+          <input id="editWordInput" class="input" value="${esc(word.word)}" autocomplete="off" spellcheck="false">
+          <label class="hint" for="editPosInput" style="display:block;margin-top:12px">词性</label>
+          <input id="editPosInput" class="input" value="${esc(word.pos || '')}" placeholder="例如 n. / v. / adj." autocomplete="off">
+          <label class="hint" for="editMeaningInput" style="display:block;margin-top:12px">释义</label>
+          <input id="editMeaningInput" class="input" value="${esc(word.meaning)}" autocomplete="off">
+          <div class="footer-actions" style="margin-top:18px">
+            <button type="button" class="btn ghost" data-close>取消</button>
+            <button type="submit" class="btn">保存修改</button>
+          </div>
+        </form>
+      </div>`);
+
+    const form = overlay.querySelector('#editWordForm');
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const values = {
+        word: overlay.querySelector('#editWordInput').value.trim(),
+        pos: overlay.querySelector('#editPosInput').value.trim(),
+        meaning: overlay.querySelector('#editMeaningInput').value.trim(),
+      };
+      if (!values.word || !values.meaning) {
+        toast('英文和释义不能为空');
+        return;
+      }
+      overlay.remove();
+      resolve(values);
+    });
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) resolve(null);
+    });
+    setTimeout(() => overlay.querySelector('#editWordInput')?.focus(), 0);
+  });
+}
+
+async function editWord(id) {
+  const word = state.listData && state.listData.words.find((w) => w.id === id);
+  if (!word) { toast('找不到这个单词'); return; }
+  const values = await editWordDialog(word);
+  if (!values) return;
+  try {
+    repo.updateWord(id, values);
+    toast('已保存修改');
+    await reloadBooks();
+    await refreshList();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
 async function refreshList() {
   const book = currentBook();
   if (!book) return;
@@ -1239,7 +1300,7 @@ function dueText(dueAt, now = Date.now()) {
   return `${days} 天后`;
 }
 
-/** 已练词汇的右侧首字母区间筛选。 */
+/** 已练词汇的 A–Z 索引：只排序和加粗，不隐藏任何单词。 */
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
 function letterBounds() {
@@ -1249,21 +1310,20 @@ function letterBounds() {
   return { from, to };
 }
 
-function filterByInitial(words) {
-  const { from, to } = letterBounds();
-  if (!from && !to) return words;
-  return words.filter((w) => {
-    const ch = String(w.word || '').trim().charAt(0).toUpperCase();
-    if (!/^[A-Z]$/.test(ch)) return false;
-    if (from && ch < from) return false;
-    if (to && ch > to) return false;
-    return true;
-  });
+function initialOf(value) {
+  const ch = String(value || '').trim().charAt(0).toUpperCase();
+  return /^[A-Z]$/.test(ch) ? ch : '#';
+}
+
+function letterInRange(ch, from, to) {
+  if (!from && !to) return false;
+  const start = from || 'A';
+  const end = to || 'Z';
+  return ch >= start && ch <= end;
 }
 
 function studiedData(book, filter) {
-  const data = repo.studied(book.id, filter, state.search || '');
-  return { ...data, words: filterByInitial(data.words) };
+  return repo.studied(book.id, filter, state.search || '');
 }
 
 function letterOptions(selected) {
@@ -1278,6 +1338,7 @@ async function renderStudied() {
   state.listData = { words: data.words };
   const c = data.counts;
   const { from, to } = letterBounds();
+  const initials = new Set(data.words.map((w) => initialOf(w.word)));
 
   const tabs = [
     ['all', '全部', c.all],
@@ -1305,14 +1366,20 @@ async function renderStudied() {
           </div>` : ''}
         </div>
         ${c.all ? `<aside class="studied-side">
-          <div class="section-label">首字母区间</div>
+          <div class="section-label">A–Z 索引</div>
+          <div class="letter-index">
+            ${LETTERS.map((ch) => `<button type="button"
+              class="letter-chip${initials.has(ch) ? ' has' : ''}${letterInRange(ch, from, to) ? ' on' : ''}"
+              data-action="letter-jump" data-letter="${ch}" title="${ch} 开头的词">${ch}</button>`).join('')}
+          </div>
+          <div class="section-label" style="margin-top:16px">高亮范围</div>
           <div class="letter-range">
             <select id="letterFrom" class="field compact" aria-label="首字母起始">${letterOptions(from)}</select>
             <span>–</span>
             <select id="letterTo" class="field compact" aria-label="首字母结束">${letterOptions(to)}</select>
           </div>
           <button class="btn ghost small block" data-action="letter-reset" style="margin-top:10px">全部字母</button>
-          <div class="hint" style="margin-top:10px">${from || to ? `${from || 'A'} – ${to || 'Z'}` : '当前不限'} · ${data.words.length} 个词</div>
+          <div class="hint" style="margin-top:10px">${from || to ? `加粗 ${from || 'A'} – ${to || 'Z'}` : '全部单词按 A–Z 排列，不隐藏'} · ${data.words.length} 个词</div>
         </aside>` : ''}
       </div>
     </div>`;
@@ -1338,6 +1405,16 @@ async function renderStudied() {
   const toSelect = document.getElementById('letterTo');
   if (fromSelect) fromSelect.addEventListener('change', () => { state.letterFrom = fromSelect.value; renderStudied(); });
   if (toSelect) toSelect.addEventListener('change', () => { state.letterTo = toSelect.value; renderStudied(); });
+
+  if (state.letterJump) {
+    const ch = state.letterJump;
+    state.letterJump = '';
+    requestAnimationFrame(() => {
+      const row = document.querySelector(`#listRows .word-row[data-letter="${ch}"]`);
+      if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      else toast(`没有 ${ch} 开头的单词`);
+    });
+  }
 }
 
 function studiedMeta(filter, data) {
@@ -1345,8 +1422,8 @@ function studiedMeta(filter, data) {
   if (!data.words.length) return '没有符合条件的单词';
   const label = { all: '练过的词', unmastered: '还没掌握', mastered: '已掌握', forgetting: '易忘' }[filter] || '';
   const { from, to } = letterBounds();
-  const range = from || to ? ` · 首字母 ${from || 'A'}–${to || 'Z'}` : '';
-  return `${label} ${data.words.length} 个${range} · 快到期的在前`;
+  const range = from || to ? ` · 加粗 ${from || 'A'}–${to || 'Z'}` : '';
+  return `${label} ${data.words.length} 个${range} · 按 A–Z 排序`;
 }
 
 function studiedRowsHtml(words) {
@@ -1361,7 +1438,7 @@ function studiedRowsHtml(words) {
       ? '首练时标为已掌握 · 不再抽到，也不进复习计划'
       : `下次复习 ${dueText(w.dueAt, now)} · 练过 ${w.times} 次${w.wrong ? ` · 错 ${w.wrong} 次` : ''}`;
     return `
-      <div class="word-row">
+      <div class="word-row" data-letter="${initialOf(w.word)}">
         <div class="idx">${w.index == null ? '' : w.index}</div>
         <div class="body">
           <div class="w">${esc(w.word)} ${tag}</div>
@@ -1413,8 +1490,8 @@ function formatSize(bytes) {
   return `${Math.max(1, Math.round(n / 1024))} KB`;
 }
 
-function downloadFile(name, text, type = 'application/json') {
-  const url = URL.createObjectURL(new Blob([text], { type }));
+function downloadBlob(name, blob) {
+  const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = name;
@@ -1422,6 +1499,45 @@ function downloadFile(name, text, type = 'application/json') {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function downloadFile(name, text, type = 'application/json') {
+  downloadBlob(name, new Blob([text], { type }));
+}
+
+function reportFileName() {
+  const now = new Date();
+  const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+  return `学习报告-${stamp}.png`;
+}
+
+/** 把当前报告画成 PNG 下载，分享 / 保存都不用截屏。 */
+async function exportReportPng(button) {
+  if (button) { button.disabled = true; button.textContent = '生成中…'; }
+  try {
+    const goal = settings.dailyGoal();
+    const { summary, mastery, modeStats } = repo.report(7, goal, state.reportBookId);
+    const book = state.reportBookId ? state.books.find((b) => b.id === state.reportBookId) : null;
+    const review = repo.dueReview(0, 'due');
+    const blob = await renderReportImage({
+      summary,
+      mastery,
+      due: review.stats.due,
+      goal,
+      bookName: book ? book.name : '全部词库',
+      modeStats: modeStats.map((item) => ({
+        ...item,
+        label: (state.modes[item.mode] || {}).label || item.mode,
+      })),
+      date: new Date(),
+    });
+    downloadBlob(reportFileName(), blob);
+    toast('报告图片已导出');
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = '导出图片'; }
+  }
 }
 
 function exportBackup() {
@@ -1499,6 +1615,7 @@ async function renderImport() {
   importEntries = [];
   importAiSource = '';
   importBusy = false;
+  resetImportHistory();
   const book = state.importBookId ? repo.stats(state.importBookId) : null;
   const appending = Boolean(book);
   const aiEnabled = settings.smartParseEnabled();
@@ -1576,8 +1693,13 @@ async function renderImport() {
   document.getElementById('markdownInput').addEventListener('input', () => {
     importEntries = [];
     importAiSource = '';
+    resetImportHistory();
     const preview = document.getElementById('preview');
-    if (preview) preview.hidden = true;
+    if (preview) {
+      preview.hidden = true;
+      preview.className = 'preview';
+      preview.textContent = '';
+    }
     setImportStatus('');
   });
 }
@@ -1585,6 +1707,9 @@ async function renderImport() {
 let importEntries = [];
 let importAiSource = '';
 let importBusy = false;
+let importUndoStack = [];
+let importEditBefore = null;
+const IMPORT_UNDO_LIMIT = 50;
 
 /** AI 在线整理中：禁用三个操作按钮，避免重复请求。 */
 function setImportBusy(busy) {
@@ -1609,6 +1734,7 @@ async function handleFile(file) {
     const data = repo.parseText(new Uint8Array(await file.arrayBuffer()));
     importEntries = data.entries;
     importAiSource = '';
+    resetImportHistory();
     document.getElementById('markdownInput').value = '';
     document.getElementById('fileName').textContent = `已读取：${file.name}（${data.total} 条）`;
     showPreview(data);
@@ -1622,10 +1748,72 @@ async function handleFile(file) {
   }
 }
 
+function cloneImportEntries(entries = importEntries) {
+  return entries.map((entry) => ({ ...entry }));
+}
+
+function resetImportHistory() {
+  importUndoStack = [];
+  importEditBefore = null;
+}
+
+function pushImportHistory(snapshot = importEntries) {
+  importUndoStack.push(cloneImportEntries(snapshot));
+  if (importUndoStack.length > IMPORT_UNDO_LIMIT) importUndoStack.shift();
+}
+
+function syncImportUndo() {
+  document.querySelectorAll('[data-action="import-undo"]').forEach((button) => {
+    button.disabled = importUndoStack.length === 0;
+  });
+}
+
+/** AI 结果：全量可编辑表格，支持删行和撤销。 */
+function showEditablePreview(note = '') {
+  const preview = document.getElementById('preview');
+  if (!preview) return;
+  preview.hidden = false;
+  preview.className = 'preview editable';
+
+  if (!importEntries.length) {
+    preview.innerHTML = `
+      <div class="import-edit-bar">
+        <span>${esc(note || '没有可导入的词条')}</span>
+        <button type="button" class="btn text small" data-action="import-undo" ${importUndoStack.length ? '' : 'disabled'}>撤销</button>
+      </div>
+      <div class="import-edit-empty">没有词条。可以点「AI 整理」重新转换，或点「撤销」恢复上一步。</div>`;
+    return;
+  }
+
+  const rows = importEntries.map((entry, index) => `
+    <div class="import-edit-row">
+      <input class="input" value="${esc(entry.word)}" data-import-index="${index}" data-import-field="word"
+             aria-label="第 ${index + 1} 个单词的英文" autocomplete="off" spellcheck="false">
+      <input class="input" value="${esc(entry.pos || '')}" data-import-index="${index}" data-import-field="pos"
+             aria-label="第 ${index + 1} 个单词的词性" autocomplete="off" placeholder="词性">
+      <input class="input" value="${esc(entry.meaning)}" data-import-index="${index}" data-import-field="meaning"
+             aria-label="第 ${index + 1} 个单词的释义" autocomplete="off">
+      <button type="button" class="icon-btn import-delete" data-action="import-delete" data-index="${index}"
+              title="删除这一条" aria-label="删除第 ${index + 1} 条">✕</button>
+    </div>`).join('');
+
+  preview.innerHTML = `
+    <div class="import-edit-bar">
+      <span>${esc(note ? `${note} · ` : '')}共 ${importEntries.length} 条，可直接修改</span>
+      <button type="button" class="btn text small" data-action="import-undo" ${importUndoStack.length ? '' : 'disabled'}>撤销</button>
+    </div>
+    <div class="import-edit-head">
+      <span>英文</span><span>词性</span><span>汉语</span><span></span>
+    </div>
+    <div class="import-edit-list">${rows}</div>`;
+  syncImportUndo();
+}
+
 function showPreview(data, note = '') {
   const preview = document.getElementById('preview');
   if (!preview) return;
   preview.hidden = false;
+  preview.className = 'preview';
   if (!data.entries.length) {
     preview.textContent = '没解析到单词，确认是 Markdown 表格（| 英文 | 词性 | 汉语 |）。';
     return;
@@ -1639,6 +1827,70 @@ function showPreview(data, note = '') {
   const more = data.entries.length > 5 ? '\n…' : '';
   const head = note ? `${note}\n` : '';
   preview.textContent = `${head}解析到 ${data.total} 条（按出现顺序入库）：\n${sample}${more}`;
+}
+
+function deleteImportRow(index) {
+  if (index < 0 || index >= importEntries.length) return;
+  pushImportHistory();
+  const [removed] = importEntries.splice(index, 1);
+  showEditablePreview(`已删除 ${removed && removed.word ? `「${removed.word}」` : '1 条'}`);
+  setImportStatus('已删除 1 条，可以点「撤销」恢复', 'warn');
+}
+
+function undoImportStep() {
+  if (!importUndoStack.length) return;
+  importEntries = importUndoStack.pop();
+  importEditBefore = null;
+  showEditablePreview('已撤销上一步');
+  setImportStatus(importEntries.length ? '已撤销上一步修改' : '已撤销，当前没有词条', 'ok');
+}
+
+function beginImportEdit(input) {
+  if (!input || importEditBefore) return;
+  importEditBefore = cloneImportEntries();
+}
+
+function commitImportEdit() {
+  if (!importEditBefore) return;
+  const changed = JSON.stringify(importEditBefore) !== JSON.stringify(importEntries);
+  if (changed) pushImportHistory(importEditBefore);
+  importEditBefore = null;
+  syncImportUndo();
+}
+
+function updateImportField(input) {
+  const index = Number(input.dataset.importIndex);
+  const field = input.dataset.importField;
+  const entry = importEntries[index];
+  if (!entry || !['word', 'pos', 'meaning'].includes(field)) return;
+  entry[field] = input.value;
+  input.classList.remove('invalid');
+}
+
+/** 保存前清掉首尾空格；缺英文 / 释义或拼写非法的行会标红并阻止入库。 */
+function validatedImportEntries() {
+  let bad = false;
+  document.querySelectorAll('.import-edit-row').forEach((row) => {
+    const word = row.querySelector('[data-import-field="word"]');
+    const meaning = row.querySelector('[data-import-field="meaning"]');
+    for (const input of [word, meaning]) {
+      if (!input) continue;
+      const invalid = !input.value.trim()
+        || (input === word && (!/\p{L}/u.test(input.value.trim()) || input.value.includes('|')));
+      input.classList.toggle('invalid', invalid);
+      if (invalid) bad = true;
+    }
+  });
+  if (bad) {
+    toast('有词条缺少英文 / 释义，或拼写不合法，请补全或删除');
+    return null;
+  }
+  return importEntries.map((entry) => ({
+    ...entry,
+    word: entry.word.trim(),
+    pos: (entry.pos || '').trim(),
+    meaning: entry.meaning.trim(),
+  }));
 }
 
 /** 在线整理粘贴文本。成功后直接填充 importEntries，并保留原文不改。 */
@@ -1655,14 +1907,16 @@ async function convertWithAi() {
   setImportBusy(true);
   setImportStatus('AI 正在整理…', 'working');
   try {
+    const before = cloneImportEntries();
     const data = await smartParse(text, {
       onProgress: ({ done, total, count }) => {
         setImportStatus(`AI 正在整理第 ${done}/${total} 段，已整理 ${count} 条…`, 'working');
       },
     });
+    pushImportHistory(before);
     importEntries = data.entries;
     importAiSource = text.trim();
-    showPreview({ entries: data.entries, total: data.count }, `AI 整理完成（${data.chunks} 段）`);
+    showEditablePreview(`AI 整理完成（${data.chunks} 段）`);
     setImportStatus('AI 整理完成 · AI 在线转换无法生成例句', 'ok');
     toast(`AI 已整理 ${data.count} 条，无法生成例句`);
     return true;
@@ -1681,9 +1935,9 @@ async function previewImport() {
   const text = input ? input.value : '';
   if (!text.trim()) { toast('先选择文件或粘贴表格'); return; }
 
-  // 同一段原文刚用 AI 整理过，再点预览不重复发请求。
+  // 同一段原文刚用 AI 整理过，再点预览不重复发请求，并保留手工修改。
   if (importAiSource && importAiSource === text.trim() && importEntries.length) {
-    showPreview({ entries: importEntries, total: importEntries.length }, '上次 AI 整理结果');
+    showEditablePreview('上次 AI 整理结果');
     setImportStatus('AI 在线转换无法生成例句', 'ok');
     return;
   }
@@ -1699,6 +1953,7 @@ async function previewImport() {
   if (data.entries.length) {
     importEntries = data.entries;
     importAiSource = '';
+    resetImportHistory();
     showPreview(data);
     setImportStatus('');
     return;
@@ -1725,8 +1980,11 @@ async function saveImport() {
   if (state.importBookId) {
     if (!importEntries.length) { await previewImport(); }
     if (!importEntries.length) { toast('没有可导入的单词'); return; }
+    commitImportEdit();
+    const entries = validatedImportEntries();
+    if (!entries) return;
     try {
-      const result = repo.importInto(state.importBookId, importEntries);
+      const result = repo.importInto(state.importBookId, entries);
       toast(`已追加 ${result.added} 条，跳过 ${result.skipped} 条重复`);
       state.importBookId = null;
       await reloadBooks();
@@ -1741,8 +1999,11 @@ async function saveImport() {
   if (!name) { toast('请填写词库名称'); return; }
   if (!importEntries.length) { await previewImport(); }
   if (!importEntries.length) { toast('没有可导入的单词'); return; }
+  commitImportEdit();
+  const entries = validatedImportEntries();
+  if (!entries) return;
   try {
-    const result = repo.createBook(name, importEntries);
+    const result = repo.createBook(name, entries);
     toast(`已创建「${name}」，导入 ${result.added} 条`);
     await reloadBooks();
     state.bookId = result.bookId;
@@ -1868,7 +2129,7 @@ async function renderReport() {
 
   app.innerHTML = `
     <div class="center-col wide report-page">
-      ${pageHead('学习报告', '<button class="btn small ghost" data-action="set-goal">调整目标</button>', '#/', true)}
+      ${pageHead('学习报告', `<div class="report-head-actions"><button class="btn small ghost" data-action="export-report">导出图片</button><button class="btn small ghost" data-action="set-goal">调整目标</button></div>`, '#/', true)}
 
       <div class="report-grid">
         <section class="report-tile span-2">
@@ -2562,6 +2823,9 @@ app.addEventListener('click', async (event) => {
     case 'set-goal':
       await askGoal();
       break;
+    case 'export-report':
+      await exportReportPng(target);
+      break;
     case 'toggle-theme': {
       const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
       setThemePref(next);
@@ -2615,6 +2879,12 @@ app.addEventListener('click', async (event) => {
     case 'ai-convert':
       await convertWithAi();
       break;
+    case 'import-delete':
+      deleteImportRow(Number(target.dataset.index));
+      break;
+    case 'import-undo':
+      undoImportStep();
+      break;
     case 'save-import':
       await saveImport();
       break;
@@ -2659,6 +2929,9 @@ app.addEventListener('click', async (event) => {
     case 'row-unblock':
       await listRowAction(action, Number(target.dataset.id));
       break;
+    case 'edit-word':
+      await editWord(Number(target.dataset.id));
+      break;
     case 'show-blocked':
       state.listFilter = 'blocked';
       await renderList();
@@ -2702,8 +2975,17 @@ app.addEventListener('click', async (event) => {
     case 'letter-reset':
       state.letterFrom = '';
       state.letterTo = '';
+      state.letterJump = '';
       await renderStudied();
       break;
+    case 'letter-jump': {
+      const ch = target.dataset.letter || '';
+      state.letterFrom = ch;
+      state.letterTo = ch;
+      state.letterJump = ch;
+      await renderStudied();
+      break;
+    }
     case 'row-unlearn': {
       const id = Number(target.dataset.id);
       try {
@@ -2895,6 +3177,12 @@ app.addEventListener('change', (event) => {
     settings.setSmartParseEnabled(event.target.checked);
     toast(event.target.checked ? '已开启 AI 智能整理，导入页可用' : '已关闭 AI 智能整理');
   }
+  if (event.target.closest('[data-import-field]')) commitImportEdit();
+});
+
+app.addEventListener('focusin', (event) => {
+  const input = event.target.closest('[data-import-field]');
+  if (input) beginImportEdit(input);
 });
 
 /* 首页输入即时保存，换模式/重绘不丢 */
@@ -2902,6 +3190,8 @@ app.addEventListener('input', (event) => {
   if (event.target.id === 'countInput') state.count = Number(event.target.value) || 0;
   if (event.target.id === 'startInput') state.start = Number(event.target.value) || null;
   if (event.target.id === 'endInput') state.end = Number(event.target.value) || null;
+  const importInput = event.target.closest('[data-import-field]');
+  if (importInput) updateImportField(importInput);
 });
 
 document.addEventListener('keydown', (event) => {

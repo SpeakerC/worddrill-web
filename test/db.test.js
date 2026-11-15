@@ -120,6 +120,7 @@ test('首练标成已掌握后不再抽到、不进复习计划，算已掌握�
   assert.equal(store.studiedCounts(book.id).mastered, 1);
   assert.equal(store.stats(book.id).learned, 1);
   assert.equal(store.stats(book.id).fresh, 2);
+  assert.equal(store.stats(book.id).practiced, 2, '首练标已掌握的词也要算进首页进度');
 
   // 报告里的掌握度也算已掌握
   assert.equal(store.masteryStats(book.id).mastered, 1);

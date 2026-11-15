@@ -67,6 +67,19 @@ test('已学过：只列当前词库练过的词，带等级与到期时间', ()
   assert.equal(studied[0].level, 1);
 });
 
+test('已学过：按单词 A–Z 排序，和练习先后无关', () => {
+  const store = tempStore();
+  const words = store.words(1);
+  store.recordAnswer(words[2].id, 'en_zh', true); // charlie 先练
+  store.recordAnswer(words[0].id, 'en_zh', true); // alpha 后练
+  store.recordAnswer(words[3].id, 'en_zh', true); // delta
+
+  assert.deepEqual(
+    store.studiedWords(1, 'all').map((w) => w.word),
+    ['alpha', 'charlie', 'delta'],
+  );
+});
+
 test('已学过：按未掌握 / 已掌握 / 易忘筛选', () => {
   const store = tempStore();
   const words = store.words(1);

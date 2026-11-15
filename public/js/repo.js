@@ -447,6 +447,11 @@ export function setLearned(wordId, learned) {
   return { ok };
 }
 
+/** 修改自建词库里的单词拼写、词性与释义（内置词库会拒绝）。 */
+export function updateWord(wordId, fields) {
+  return { word: requireStore().updateWord(Number(wordId), fields) };
+}
+
 export function unblockAll(bookId) {
   return { changed: requireStore().unblockAll(Number(bookId)) };
 }

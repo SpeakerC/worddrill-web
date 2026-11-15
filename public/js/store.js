@@ -382,7 +382,8 @@ export class Store {
     return {
       wordCount: visible.length,
       blockedCount: this.blockedCount(bookId),
-      practiced: visible.filter((w) => practiced.has(w.id)).length,
+      // 「不再练习此单词」也是已经处理过的词，首页进度条要一起算
+      practiced: visible.filter((w) => practiced.has(w.id) || w.learned).length,
       learned,
       // 还能抽出来练的新词：没练过、也没标成已掌握
       fresh: visible.filter((w) => !practiced.has(w.id) && !w.learned).length,
@@ -516,6 +517,36 @@ export class Store {
     word.blocked = Boolean(blocked);
     this.change('words');
     return true;
+  }
+
+  /**
+   * 修改自建词库里的单词拼写、词性与释义。内置词库不允许改，避免和
+   * 重新部署的官方词表冲突；学习记录按 wordId 保存，改拼写不会丢进度。
+   * @returns {object} 更新后的词条（带当前索引）
+   */
+  updateWord(wordId, fields = {}) {
+    const word = this.db.words.find((w) => w.id === wordId);
+    if (!word) throw new Error('单词不存在');
+    const book = this.db.books.find((b) => b.id === word.bookId);
+    if (book && book.builtin) throw new Error('内置词库不能修改');
+
+    const nextWord = String(fields.word == null ? word.word : fields.word).trim();
+    const nextPos = String(fields.pos == null ? word.pos : fields.pos).trim();
+    const nextMeaning = String(fields.meaning == null ? word.meaning : fields.meaning).trim();
+    if (!nextWord || !nextMeaning) throw new Error('单词和释义不能为空');
+    if (!/\p{L}/u.test(nextWord) || nextWord.includes('|')) throw new Error('单词拼写不合法');
+
+    const key = normWordKey(nextWord);
+    const duplicate = this.db.words.find(
+      (w) => w.bookId === word.bookId && w.id !== word.id && normWordKey(w.word) === key,
+    );
+    if (duplicate) throw new Error(`词库里已经有「${duplicate.word}」了`);
+
+    word.word = nextWord;
+    word.pos = nextPos;
+    word.meaning = nextMeaning;
+    this.change('words');
+    return this.withIndex(word, this.indexMap(word.bookId).get(word.id));
   }
 
   /**
@@ -793,8 +824,10 @@ export class Store {
         (w) => w.word.toLowerCase().includes(q) || String(w.meaning).toLowerCase().includes(q),
       );
     }
-    // 最该复习的排前面：过期的优先，其次等级低的
-    return out.sort((a, b) => a.dueAt - b.dueAt || a.level - b.level || a.id - b.id);
+    // 已练词汇按 A–Z 排列，方便按首字母定位；复习到期信息仍在每行里显示。
+    return out.sort(
+      (a, b) => String(a.word).localeCompare(String(b.word), 'en', { sensitivity: 'base' }) || a.id - b.id,
+    );
   }
 
   /** 已学过页面的三个筛选项各有多少词。 */

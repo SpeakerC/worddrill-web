@@ -12,7 +12,7 @@ function check(condition, message) {
 async function main() {
   const server = await startServer();
   const browser = await launchBrowser();
-  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (err) => errors.push(err.message));
@@ -99,9 +99,19 @@ async function main() {
     await page.fill('#markdownInput', 'abandon 放弃\nability 能力');
     await page.click('[data-action="ai-convert"]');
     await page.waitForFunction(() => document.querySelector('#preview')?.textContent.includes('AI 整理完成'));
-    check((await page.textContent('#preview')).includes('解析到 2 条'), 'AI 结果应进预览');
+    check((await page.$$('.import-edit-row')).length === 2, 'AI 结果应全量进入可编辑预览');
+    check((await page.textContent('.import-edit-bar')).includes('共 2 条'), '预览应显示全量条数');
     check(!(await page.textContent('#preview')).includes('〔例〕'), 'AI 转换结果不应带例句');
     check(aiCalls === 1, `手动 AI 整理应调用一次接口，实际 ${aiCalls}`);
+
+    await page.locator('.import-edit-row [data-import-field="word"]').first().fill('abandoned');
+    await page.locator('.import-edit-row [data-import-field="word"]').first().blur();
+    await page.locator('[data-action="import-delete"]').nth(1).click();
+    check((await page.$$('.import-edit-row')).length === 1, 'AI 预览应能删行');
+    await page.click('[data-action="import-undo"]');
+    check((await page.$$('.import-edit-row')).length === 2, 'AI 预览应能撤销删行');
+    check((await page.locator('.import-edit-row [data-import-field="word"]').first().inputValue()) === 'abandoned',
+      '撤销应保留已编辑内容');
 
     await page.fill('#markdownInput', 'accent 口音');
     await page.click('[data-action="preview"]');
@@ -125,6 +135,22 @@ async function main() {
     await page.fill('#nameInput', '冒烟测试词库');
     await page.click('[data-action="save-import"]');
     await page.waitForFunction(() => location.hash === '#/' || location.hash === '');
+    await page.waitForSelector('.hero');
+
+    /* ---------- 自建词库：修改拼写与释义 ---------- */
+    await page.evaluate(() => { location.hash = '#/list'; });
+    await page.waitForSelector('.word-row');
+    check(Boolean(await page.$('[data-action="edit-word"]')), '自建词库应有编辑按钮');
+    await page.locator('[data-action="edit-word"]').nth(1).click();
+    await page.waitForSelector('#editWordForm');
+    await page.fill('#editWordInput', 'trickier');
+    await page.fill('#editMeaningInput', '更棘手的（已改）');
+    await page.click('#editWordForm button[type="submit"]');
+    await page.waitForFunction(
+      () => document.querySelectorAll('.word-row .w')[1]?.textContent.includes('trickier'),
+    );
+    check((await page.$$eval('.word-row .m', (els) => els[1].textContent)).includes('已改'), '编辑后应显示新释义');
+    await page.evaluate(() => { location.hash = '#/'; });
     await page.waitForSelector('.hero');
 
     /* ---------- 例句填词：导入的第四列例句 ---------- */
@@ -187,6 +213,13 @@ async function main() {
     /* ---------- 我不会 + 听音拼写 ---------- */
     await page.evaluate(() => { location.hash = '#/'; });
     await page.waitForSelector('.hero');
+    const progressData = await page.evaluate(() => {
+      const book = window.worddrill.repo.bootstrap().books.find((b) => b.name === '冒烟测试词库');
+      const stats = window.worddrill.repo.stats(book.id);
+      return { practiced: stats.practiced, wordCount: stats.wordCount };
+    });
+    check((await page.textContent('.hero .big')).includes(`已练 ${progressData.practiced} / ${progressData.wordCount} 词`),
+      '首页进度条应使用包含首练标已掌握的数量');
     await page.click('[data-action="mode"][data-mode="listen"]');
     await page.waitForFunction(() => document.querySelector('.mode.on b')?.textContent === '听音拼写');
     await page.click('[data-action="start"]');
@@ -320,7 +353,12 @@ async function main() {
     await page.selectOption('#reportBook', { index: 0 });
     await page.waitForTimeout(300);
 
-    /* ---------- 已练词汇：右侧首字母区间 ---------- */
+    const downloadPromise = page.waitForEvent('download');
+    await page.click('[data-action="export-report"]');
+    const reportDownload = await downloadPromise;
+    check(reportDownload.suggestedFilename().endsWith('.png'), `报告导出文件名应以 .png 结尾：${reportDownload.suggestedFilename()}`);
+
+    /* ---------- 已练词汇：A–Z 排序与字母索引 ---------- */
     await page.evaluate(() => { location.hash = '#/studied'; });
     await page.waitForSelector('.studied-layout');
     const studiedLayout = await page.evaluate(() => {
@@ -329,19 +367,25 @@ async function main() {
       return { side: side && side.toJSON(), main: main && main.toJSON() };
     });
     check(studiedLayout.side && studiedLayout.main && studiedLayout.side.left > studiedLayout.main.right - 1,
-      '首字母筛选应在主列表右侧');
+      'A–Z 索引应在主列表右侧');
+    check((await page.$$('.letter-chip')).length === 26, 'A–Z 索引应有 26 个字母');
     const beforeLetterRows = await page.$$eval('.word-row', (els) => els.length);
+    const studiedWords = await page.$$eval('.word-row .w', (els) => els.map((el) => el.textContent.trim().split(' ')[0]));
+    const sortedWords = [...studiedWords].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+    check(JSON.stringify(studiedWords) === JSON.stringify(sortedWords), '已练词汇应按 A–Z 排序');
     if (beforeLetterRows > 0) {
-      const firstLetter = await page.$eval('.word-row .w', (el) => el.textContent.trim().charAt(0).toUpperCase());
+      const firstLetter = studiedWords[0].charAt(0).toUpperCase();
       await page.selectOption('#letterFrom', firstLetter);
       await page.waitForTimeout(250);
       await page.selectOption('#letterTo', firstLetter);
       await page.waitForTimeout(250);
-      const ranged = await page.$$eval('.word-row .w', (els) => els.map((el) => el.textContent.trim().charAt(0).toUpperCase()));
-      check(ranged.every((ch) => ch === firstLetter), `首字母区间应只留 ${firstLetter}，实际 ${JSON.stringify(ranged)}`);
+      check((await page.$$eval('.word-row', (els) => els.length)) === beforeLetterRows,
+        '选择首字母区间不应隐藏其他单词');
+      check((await page.textContent('.letter-chip.on')) === firstLetter, '选中的首字母应加粗');
+      check((await page.textContent('#listMeta')).includes('按 A–Z 排序'), '列表说明应标明 A–Z 排序');
       await page.click('[data-action="letter-reset"]');
       await page.waitForTimeout(200);
-      check((await page.$$eval('.word-row', (els) => els.length)) === beforeLetterRows, '重置后应恢复全部已练词');
+      check((await page.$$eval('.word-row', (els) => els.length)) === beforeLetterRows, '重置后单词数量不变');
     }
 
     /* ---------- 设置 / 隐私 ---------- */
