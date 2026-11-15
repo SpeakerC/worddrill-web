@@ -444,6 +444,32 @@ async function main() {
     );
     check(Boolean(await page.$('.settings-important')), '重建后设置页应还在');
 
+    /* ---------- 设置页拼图：实验性功能在「其他」前面 ---------- */
+    const settingLabels = await page.$$eval(
+      '.settings-grid > .settings-tile > .section-label',
+      (els) => els.map((el) => el.textContent.trim()),
+    );
+    check(
+      JSON.stringify(settingLabels) === JSON.stringify(['学习', '数据与备份', '实验性功能', '其他']),
+      `设置块顺序应为 学习 / 数据 / 实验性 / 其他，实际 ${JSON.stringify(settingLabels)}`,
+    );
+    check(Boolean(await page.$('.page-head [data-action="back"] svg')), '返回按钮应使用图标');
+    const settingsRelations = await page.evaluate(() => {
+      const tiles = [...document.querySelectorAll('.settings-tile')];
+      const byLabel = (label) => tiles.find((el) => el.querySelector('.section-label')?.textContent === label);
+      const learn = byLabel('学习');
+      const experiment = byLabel('实验性功能');
+      const ttsRow = document.querySelector('#ttsInput')?.closest('.setting-row');
+      return {
+        revealInLearn: Boolean(learn?.querySelector('#revealMeaningsInput')),
+        aiFirst: experiment?.querySelector('.setting-row .title')?.textContent.includes('AI 智能整理'),
+        ttsButtonSameRow: Boolean(ttsRow?.querySelector('[data-action="test-tts"]')),
+      };
+    });
+    check(settingsRelations.revealInLearn, '答对后显示其他选项释义应放在「学习」');
+    check(settingsRelations.aiFirst, '实验性功能第一项应为 AI 智能整理');
+    check(settingsRelations.ttsButtonSameRow, '试听发音按钮应放在自动朗读选项里');
+
     /* ---------- 设置页拼图：备份块不再是整行，其他里有开源许可 ---------- */
     const settingsTiles = await page.evaluate(() => [...document.querySelectorAll('.settings-tile')].map((el) => {
       const label = el.querySelector('.section-label');
@@ -491,7 +517,7 @@ async function main() {
 
     /* ---------- APK 版本与链接 ---------- */
     const apkHref = await page.getAttribute('a[href*="gitee.com"]', 'href');
-    check(apkHref && apkHref.endsWith('v1.6.0/WordDrill-1.6.0.apk'), `APK 应为 1.6.0，实际 ${apkHref}`);
+    check(apkHref && apkHref.endsWith('v1.6.4/WordDrill-1.6.4.apk'), `APK 应为 1.6.4，实际 ${apkHref}`);
 
     /* ---------- 自动备份三项 ---------- */
     await page.waitForSelector('#autobackupInput', { state: 'attached' });

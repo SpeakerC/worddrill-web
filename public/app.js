@@ -358,7 +358,9 @@ function pageHead(title, extra = '', backHash = '#/', navPage = false) {
   return `
     <div class="page-head"${navPage ? ' data-navpage' : ''}>
       ${navToggleHtml()}
-      <button class="icon-btn" data-action="back" data-back="${backHash}" title="返回">←</button>
+      <button class="icon-btn back-btn" data-action="back" data-back="${backHash}" title="返回" aria-label="返回">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>
+      </button>
       <h2>${esc(title)}</h2>
       <div class="grow"></div>
       ${extra}
@@ -2314,22 +2316,28 @@ async function renderSettings() {
               </div>
             </div>
             <div class="divider"></div>
-            <div class="setting-row" style="padding-top:0">
+            <div class="setting-row">
               <div class="setting-text">
                 <div class="title">自动朗读</div>
                 <small>练习时自动读出单词发音</small>
               </div>
-              <label class="switch" title="练习时自动朗读">
-                <input id="ttsInput" type="checkbox" ${settings.ttsEnabled() ? 'checked' : ''}>
+              <div class="setting-actions">
+                <button class="btn ghost small" data-action="test-tts">试听</button>
+                <label class="switch" title="练习时自动朗读">
+                  <input id="ttsInput" type="checkbox" ${settings.ttsEnabled() ? 'checked' : ''}>
+                  <span class="switch-track"><span class="switch-thumb"></span></span>
+                </label>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-text">
+                <div class="title">答对后显示其他选项释义</div>
+                <small>汉译英答对后，标出三个干扰项的中文意思</small>
+              </div>
+              <label class="switch" title="答对后显示干扰项释义">
+                <input id="revealMeaningsInput" type="checkbox" ${settings.revealOptionMeanings() ? 'checked' : ''}>
                 <span class="switch-track"><span class="switch-thumb"></span></span>
               </label>
-            </div>
-            <div class="setting-row" style="padding-bottom:0">
-              <div class="setting-text">
-                <div class="title">试听发音</div>
-                <small>测试浏览器语音</small>
-              </div>
-              <button class="btn ghost small" data-action="test-tts">试听</button>
             </div>
             <div class="divider"></div>
             <div class="setting-row" style="padding-bottom:0">
@@ -2393,6 +2401,32 @@ async function renderSettings() {
           </div>
         </section>
         <section class="settings-tile">
+          <div class="section-label">实验性功能</div>
+          <div class="card settings">
+            <div class="setting-row" style="padding-top:0">
+              <div class="setting-text">
+                <div class="title ai-setting-title">${AI_ICON}AI 智能整理</div>
+                <small>导入页可把粘贴的原始词表在线整理成三列；AI 无法生成例句</small>
+              </div>
+              <label class="switch" title="开启 AI 智能整理">
+                <input id="smartParseInput" type="checkbox" ${settings.smartParseEnabled() ? 'checked' : ''}>
+                <span class="switch-track"><span class="switch-thumb"></span></span>
+              </label>
+            </div>
+            <div class="setting-row" style="padding-bottom:0">
+              <div class="setting-text">
+                <div class="title">干扰项变化</div>
+                <small>每次从最像的 9 个词里重新抽，选项不再固定</small>
+              </div>
+              <label class="switch" title="让干扰项每次不同">
+                <input id="varyDistractorsInput" type="checkbox" ${settings.varyDistractors() ? 'checked' : ''}>
+                <span class="switch-track"><span class="switch-thumb"></span></span>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-tile">
           <div class="section-label">其他</div>
           <div class="card settings">
             <div class="setting-row" style="padding-top:0">
@@ -2429,42 +2463,6 @@ async function renderSettings() {
                 <small>版本 ${esc(version)}</small>
               </div>
               <button class="btn small ghost" data-action="about">查看</button>
-            </div>
-          </div>
-        </section>
-
-        <section class="settings-tile">
-          <div class="section-label">实验性功能</div>
-          <div class="card settings">
-            <div class="setting-row" style="padding-top:0">
-              <div class="setting-text">
-                <div class="title">干扰项变化</div>
-                <small>每次从最像的 9 个词里重新抽，选项不再固定</small>
-              </div>
-              <label class="switch" title="让干扰项每次不同">
-                <input id="varyDistractorsInput" type="checkbox" ${settings.varyDistractors() ? 'checked' : ''}>
-                <span class="switch-track"><span class="switch-thumb"></span></span>
-              </label>
-            </div>
-            <div class="setting-row">
-              <div class="setting-text">
-                <div class="title">答对后显示其他选项释义</div>
-                <small>汉译英答对后，标出三个干扰项的中文意思</small>
-              </div>
-              <label class="switch" title="答对后显示干扰项释义">
-                <input id="revealMeaningsInput" type="checkbox" ${settings.revealOptionMeanings() ? 'checked' : ''}>
-                <span class="switch-track"><span class="switch-thumb"></span></span>
-              </label>
-            </div>
-            <div class="setting-row" style="padding-bottom:0">
-              <div class="setting-text">
-                <div class="title ai-setting-title">${AI_ICON}AI 智能整理</div>
-                <small>导入页可把粘贴的原始词表在线整理成三列；AI 无法生成例句</small>
-              </div>
-              <label class="switch" title="开启 AI 智能整理">
-                <input id="smartParseInput" type="checkbox" ${settings.smartParseEnabled() ? 'checked' : ''}>
-                <span class="switch-track"><span class="switch-thumb"></span></span>
-              </label>
             </div>
           </div>
         </section>
@@ -3239,7 +3237,7 @@ async function registerServiceWorker() {
 
 /** 安卓 APK 的版本与下载地址，设置页和首页底部的下载按钮共用。 */
 function androidApkUrl() {
-  const version = '1.6.0';
+  const version = '1.6.4';
   return {
     version,
     url: `https://gitee.com/MTeaCase/worddrill/releases/download/v${version}/WordDrill-${version}.apk`,

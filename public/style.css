@@ -158,6 +158,26 @@ a { color: var(--link); }
 .icon-btn:hover { background: var(--hover); color: var(--brand); }
 .icon-btn.star-on { color: var(--star); }
 
+.back-btn { color: var(--text); }
+.back-btn svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+@media (max-width: 560px) {
+  .back-btn {
+    width: 42px;
+    height: 42px;
+    border: 1px solid var(--divider);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+}
+
 /* ---------- 首页 ---------- */
 
 .hero {
@@ -346,6 +366,9 @@ select.field:focus { outline: 2px solid rgba(63, 91, 217, 0.25); border-color: v
   font-size: 12.5px;
   line-height: 1.45;
 }
+
+.setting-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.setting-actions .btn { white-space: nowrap; }
 
 .unit-field { display: flex; align-items: center; gap: 8px; flex: none; }
 .unit-field .unit { color: var(--muted); font-size: 13px; white-space: nowrap; }
