@@ -69,9 +69,48 @@ async function main() {
     check((await page.textContent('.word-row .idx')).trim() === '1', '第一行索引应为 1');
     check((await bodyText()).includes('练习这些单词'), '词表应有练习按钮');
 
-    /* ---------- 导入 ---------- */
+    /* ---------- 导入：AI 智能整理（实验性，用桩接口） ---------- */
+    await page.evaluate(() => { location.hash = '#/settings'; });
+    await page.waitForSelector('#smartParseInput', { state: 'attached' });
+    await page.evaluate(() => document.getElementById('smartParseInput').click());
     await page.evaluate(() => { location.hash = '#/import'; });
-    await page.waitForSelector('.drop');
+    await page.waitForSelector('.ai-import');
+    check((await page.textContent('.ai-import')).includes('AI 在线转换无法生成例句'), 'AI 转换应提示无法生成例句');
+    check(Boolean(await page.$('.ai-import-badge .ai-icon')), '导入页应有 AI 图标');
+    check(Boolean(await page.$('[data-action="ai-convert"] .ai-icon')), 'AI 整理按钮应有图标');
+    check(await page.isChecked('#aiAutoInput'), '自动转换默认应勾选');
+
+    let aiCalls = 0;
+    const aiRoute = async (route) => {
+      aiCalls += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          ok: true,
+          markdown: '| 英文 | 词性 | 汉语 |\n| --- | --- | --- |\n| abandon | v. | 放弃 |\n| ability | n. | 能力 |',
+          count: 2,
+          truncated: false,
+        }),
+      });
+    };
+    await page.route('**/api/smart-parse', aiRoute);
+
+    await page.fill('#markdownInput', 'abandon 放弃\nability 能力');
+    await page.click('[data-action="ai-convert"]');
+    await page.waitForFunction(() => document.querySelector('#preview')?.textContent.includes('AI 整理完成'));
+    check((await page.textContent('#preview')).includes('解析到 2 条'), 'AI 结果应进预览');
+    check(!(await page.textContent('#preview')).includes('〔例〕'), 'AI 转换结果不应带例句');
+    check(aiCalls === 1, `手动 AI 整理应调用一次接口，实际 ${aiCalls}`);
+
+    await page.fill('#markdownInput', 'accent 口音');
+    await page.click('[data-action="preview"]');
+    await page.waitForFunction(() => document.querySelector('#preview')?.textContent.includes('AI 整理完成'));
+    check(aiCalls === 2, `自动转换应在本地解析失败后调用接口，实际 ${aiCalls}`);
+    await page.unroute('**/api/smart-parse', aiRoute);
+    await page.evaluate(() => localStorage.setItem('worddrill.smartParse', 'off'));
+
+    /* ---------- 导入：普通 Markdown 表格 ---------- */
     await page.fill('#markdownInput', [
       '| # | 英文 | 词性 | 汉语 | 例句 |',
       '|---|---|---|---|---|',

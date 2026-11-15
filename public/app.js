@@ -5,6 +5,10 @@ import { speak, supported as speechSupported, warmup as warmupSpeech } from './j
 import { applyTheme, themePref, setThemePref, watchSystem } from './js/theme.js';
 import { mistakesCsv, csvFileName, CSV_BOM } from './js/csv.js';
 import { isAcceptable } from './js/quiz.js';
+import { smartParse } from './js/smartparse.js';
+
+/** AI 图标：四角星 + 小星，导入页和设置共用。 */
+const AI_ICON = `<svg class="ai-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8l1.8 5.4L19.2 10l-5.4 1.8L12 17.2l-1.8-5.4L4.8 10l5.4-1.8L12 2.8Z"/><path d="M19 14.6l.9 2.5 2.5.9-2.5.9-.9 2.5-.9-2.5-2.5-.9 2.5-.9.9-2.5Z"/></svg>`;
 
 /* ============================================================
  * 单词练习 · 前端（纯静态版，数据存在浏览器里）
@@ -1492,8 +1496,12 @@ async function deleteBook(id) {
 /* ---------- 导入 ---------- */
 
 async function renderImport() {
+  importEntries = [];
+  importAiSource = '';
+  importBusy = false;
   const book = state.importBookId ? repo.stats(state.importBookId) : null;
   const appending = Boolean(book);
+  const aiEnabled = settings.smartParseEnabled();
   app.innerHTML = `
     ${pageHead(appending ? '追加单词' : '导入词汇表')}
     <div class="center-col">
@@ -1525,10 +1533,29 @@ async function renderImport() {
 |---|---|---|---|
 | competence | n. | 能力；胜任 | He has great competence.||他很有能力。 |"></textarea>
 
+        ${aiEnabled ? `
+        <div class="ai-import">
+          <div class="ai-import-head">
+            <span class="ai-import-badge" title="AI 智能整理">${AI_ICON}</span>
+            <div class="ai-import-copy">
+              <div class="ai-import-title">AI 智能整理 <span class="ai-exp">实验</span></div>
+              <div class="ai-import-sub">粘贴的词表不是标准表格时，交给 AI 在线整理成「英文 / 词性 / 汉语」三列。</div>
+            </div>
+          </div>
+          <label class="ai-auto">
+            <input id="aiAutoInput" type="checkbox" checked>
+            <span><b>自动转换</b><small>解析预览 / 保存时，格式不对就自动走 AI</small></span>
+          </label>
+          <div class="ai-import-note"><b>AI 在线转换无法生成例句。</b>结果可能有误，导入前请核对预览。</div>
+          <div class="ai-import-privacy">只在你点击时把粘贴内容发往公共服务，服务端不保存；请勿粘贴隐私信息。</div>
+        </div>` : ''}
+
+        <div id="importStatus" class="import-status" role="status" aria-live="polite" hidden></div>
         <div class="preview" id="preview" hidden></div>
 
-        <div class="footer-actions">
+        <div class="footer-actions import-actions">
           <button class="btn ghost" data-action="preview">解析预览</button>
+          ${aiEnabled ? `<button class="btn ghost ai-action" data-action="ai-convert">${AI_ICON}<span>AI 整理</span></button>` : ''}
           <button class="btn" data-action="save-import">保存导入</button>
         </div>
       </div>
@@ -1548,21 +1575,44 @@ async function renderImport() {
 
   document.getElementById('markdownInput').addEventListener('input', () => {
     importEntries = [];
+    importAiSource = '';
     const preview = document.getElementById('preview');
     if (preview) preview.hidden = true;
+    setImportStatus('');
   });
 }
 
 let importEntries = [];
+let importAiSource = '';
+let importBusy = false;
+
+/** AI 在线整理中：禁用三个操作按钮，避免重复请求。 */
+function setImportBusy(busy) {
+  importBusy = busy;
+  document.querySelectorAll('[data-action="preview"], [data-action="save-import"], [data-action="ai-convert"]')
+    .forEach((btn) => { btn.disabled = busy; });
+  const label = document.querySelector('[data-action="ai-convert"] span');
+  if (label) label.textContent = busy ? '整理中…' : 'AI 整理';
+}
+
+function setImportStatus(message, kind = '') {
+  const status = document.getElementById('importStatus');
+  if (!status) return;
+  status.hidden = !message;
+  status.textContent = message || '';
+  status.className = `import-status${kind ? ` ${kind}` : ''}`;
+}
 
 async function handleFile(file) {
   if (file.size > 4 * 1024 * 1024) { toast('文件超过 4 MB，请拆分后再导入'); return; }
   try {
     const data = repo.parseText(new Uint8Array(await file.arrayBuffer()));
     importEntries = data.entries;
+    importAiSource = '';
     document.getElementById('markdownInput').value = '';
     document.getElementById('fileName').textContent = `已读取：${file.name}（${data.total} 条）`;
     showPreview(data);
+    setImportStatus('');
     if (!state.importBookId) {
       const nameInput = document.getElementById('nameInput');
       if (!nameInput.value.trim()) nameInput.value = file.name.replace(/\.[^.]+$/, '');
@@ -1572,7 +1622,7 @@ async function handleFile(file) {
   }
 }
 
-function showPreview(data) {
+function showPreview(data, note = '') {
   const preview = document.getElementById('preview');
   if (!preview) return;
   preview.hidden = false;
@@ -1587,22 +1637,91 @@ function showPreview(data) {
     })
     .join('\n');
   const more = data.entries.length > 5 ? '\n…' : '';
-  preview.textContent = `解析到 ${data.total} 条（按出现顺序入库）：\n${sample}${more}`;
+  const head = note ? `${note}\n` : '';
+  preview.textContent = `${head}解析到 ${data.total} 条（按出现顺序入库）：\n${sample}${more}`;
+}
+
+/** 在线整理粘贴文本。成功后直接填充 importEntries，并保留原文不改。 */
+async function convertWithAi() {
+  if (importBusy) return false;
+  if (!settings.smartParseEnabled()) {
+    toast('请先在 设置 → 实验性功能 中开启 AI 智能整理');
+    return false;
+  }
+  const input = document.getElementById('markdownInput');
+  const text = input ? input.value : '';
+  if (!text.trim()) { toast('先粘贴要整理的词表'); return false; }
+
+  setImportBusy(true);
+  setImportStatus('AI 正在整理…', 'working');
+  try {
+    const data = await smartParse(text, {
+      onProgress: ({ done, total, count }) => {
+        setImportStatus(`AI 正在整理第 ${done}/${total} 段，已整理 ${count} 条…`, 'working');
+      },
+    });
+    importEntries = data.entries;
+    importAiSource = text.trim();
+    showPreview({ entries: data.entries, total: data.count }, `AI 整理完成（${data.chunks} 段）`);
+    setImportStatus('AI 整理完成 · AI 在线转换无法生成例句', 'ok');
+    toast(`AI 已整理 ${data.count} 条，无法生成例句`);
+    return true;
+  } catch (err) {
+    setImportStatus(err.message, 'error');
+    toast(err.message);
+    return false;
+  } finally {
+    setImportBusy(false);
+  }
 }
 
 async function previewImport() {
-  const text = document.getElementById('markdownInput').value;
+  if (importBusy) return;
+  const input = document.getElementById('markdownInput');
+  const text = input ? input.value : '';
   if (!text.trim()) { toast('先选择文件或粘贴表格'); return; }
+
+  // 同一段原文刚用 AI 整理过，再点预览不重复发请求。
+  if (importAiSource && importAiSource === text.trim() && importEntries.length) {
+    showPreview({ entries: importEntries, total: importEntries.length }, '上次 AI 整理结果');
+    setImportStatus('AI 在线转换无法生成例句', 'ok');
+    return;
+  }
+
+  let data;
   try {
-    const data = repo.parseText(new TextEncoder().encode(text));
-    importEntries = data.entries;
-    showPreview(data);
+    data = repo.parseText(new TextEncoder().encode(text));
   } catch (err) {
     toast(err.message);
+    return;
+  }
+
+  if (data.entries.length) {
+    importEntries = data.entries;
+    importAiSource = '';
+    showPreview(data);
+    setImportStatus('');
+    return;
+  }
+
+  const auto = document.getElementById('aiAutoInput');
+  if (settings.smartParseEnabled() && (!auto || auto.checked)) {
+    await convertWithAi();
+    return;
+  }
+
+  importEntries = [];
+  importAiSource = '';
+  showPreview(data);
+  if (settings.smartParseEnabled()) {
+    setImportStatus('没解析到单词；可点「AI 整理」在线转换，注意无法生成例句', 'warn');
+  } else {
+    setImportStatus('');
   }
 }
 
 async function saveImport() {
+  if (importBusy) return;
   if (state.importBookId) {
     if (!importEntries.length) { await previewImport(); }
     if (!importEntries.length) { toast('没有可导入的单词'); return; }
@@ -2066,13 +2185,23 @@ async function renderSettings() {
                 <span class="switch-track"><span class="switch-thumb"></span></span>
               </label>
             </div>
-            <div class="setting-row" style="padding-bottom:0">
+            <div class="setting-row">
               <div class="setting-text">
                 <div class="title">答对后显示其他选项释义</div>
                 <small>汉译英答对后，标出三个干扰项的中文意思</small>
               </div>
               <label class="switch" title="答对后显示干扰项释义">
                 <input id="revealMeaningsInput" type="checkbox" ${settings.revealOptionMeanings() ? 'checked' : ''}>
+                <span class="switch-track"><span class="switch-thumb"></span></span>
+              </label>
+            </div>
+            <div class="setting-row" style="padding-bottom:0">
+              <div class="setting-text">
+                <div class="title ai-setting-title">${AI_ICON}AI 智能整理</div>
+                <small>导入页可把粘贴的原始词表在线整理成三列；AI 无法生成例句</small>
+              </div>
+              <label class="switch" title="开启 AI 智能整理">
+                <input id="smartParseInput" type="checkbox" ${settings.smartParseEnabled() ? 'checked' : ''}>
                 <span class="switch-track"><span class="switch-thumb"></span></span>
               </label>
             </div>
@@ -2483,6 +2612,9 @@ app.addEventListener('click', async (event) => {
     case 'preview':
       await previewImport();
       break;
+    case 'ai-convert':
+      await convertWithAi();
+      break;
     case 'save-import':
       await saveImport();
       break;
@@ -2758,6 +2890,10 @@ app.addEventListener('change', (event) => {
   if (event.target.id === 'revealMeaningsInput') {
     settings.setRevealOptionMeanings(event.target.checked);
     toast(event.target.checked ? '答对后显示其他选项释义' : '答对后不再显示其他选项释义');
+  }
+  if (event.target.id === 'smartParseInput') {
+    settings.setSmartParseEnabled(event.target.checked);
+    toast(event.target.checked ? '已开启 AI 智能整理，导入页可用' : '已关闭 AI 智能整理');
   }
 });
 

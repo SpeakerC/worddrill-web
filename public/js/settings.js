@@ -7,6 +7,7 @@ const BACKUP_INTERVAL_KEY = 'worddrill.backupInterval';
 const BACKUP_KEEP_KEY = 'worddrill.backupKeep';
 const VARY_DISTRACTORS_KEY = 'worddrill.varyDistractors';
 const REVEAL_MEANINGS_KEY = 'worddrill.revealMeanings';
+const SMART_PARSE_KEY = 'worddrill.smartParse';
 
 export const GOAL_DEFAULT = 30;
 export const GOAL_MIN = 5;
@@ -108,4 +109,13 @@ export function revealOptionMeanings() {
 
 export function setRevealOptionMeanings(enabled) {
   write(REVEAL_MEANINGS_KEY, enabled ? 'on' : 'off');
+}
+
+/** 导入页是否显示「AI 智能整理」；默认关闭，开启后才会把粘贴内容发到在线接口。 */
+export function smartParseEnabled() {
+  return read(SMART_PARSE_KEY, 'off') === 'on';
+}
+
+export function setSmartParseEnabled(enabled) {
+  write(SMART_PARSE_KEY, enabled ? 'on' : 'off');
 }
